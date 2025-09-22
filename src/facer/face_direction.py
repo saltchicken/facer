@@ -48,7 +48,7 @@ class Direction:
         
         return f"{h_dir if h_dir != 'Straight' else ''} {v_dir if v_dir != 'Straight' else ''}".strip().lower()
 
-class FaceOrienter:
+class FaceDirection:
     def __init__(self):
         self.face_mesh = mp.solutions.face_mesh.FaceMesh(
             min_detection_confidence=0.5, 
