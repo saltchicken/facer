@@ -2,6 +2,7 @@ import numpy as np
 import cv2
 import os
 from onnxruntime import InferenceSession
+from huggingface_hub import hf_hub_download
 
 class FaceEmbedder:
     """A class to generate face embeddings using a pre-trained ONNX model."""
@@ -17,12 +18,12 @@ class FaceEmbedder:
         """Loads and caches the ONNX model for face embedding from a local path."""
         try:
             # Construct the local path to the ONNX model
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            model_path = os.path.join(base_dir, "models", "w600k_r50.onnx")
-
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(f"ONNX model not found at {model_path}. Please download it manually.")
-
+            model_path = hf_hub_download(
+                repo_id="theanhntp/Liblib",  # dataset repo
+                repo_type="dataset",         # important: it's not a model repo
+                filename="insightface/models/buffalo_l/w600k_r50.onnx",
+                revision="ae4357741af379482690fe3e0f2fa6fd32ba33b4"  # specific commit
+            )
             self._session = InferenceSession(model_path)
         except Exception as e:
             print(f"Error loading face embedding model: {e}")
