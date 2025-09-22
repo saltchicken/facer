@@ -1,0 +1,16 @@
+[project]
+name = "facer"
+version = "0.1.0"
+description = "A combined project for face detection and orientation."
+requires-python = ">=3.8"
+
+dependencies = [
+    "ultralytics",
+    "opencv-python",
+    "huggingface_hub",
+    "mediapipe"
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
