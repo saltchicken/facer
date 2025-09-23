@@ -13,6 +13,7 @@ def main():
     parser = argparse.ArgumentParser(description="Facer: Analyze, enroll, or identify faces in an image.")
     parser.add_argument("image_path", type=str, help="Path to the input image.")
     parser.add_argument("--enroll", type=str, help="Enroll the first valid face found with the given name.")
+    parser.add_argument("--threshold", type=float, default=0.5, help="Cosine similarity threshold for face identification (default: 0.5).")
     args = parser.parse_args()
 
     image = cv2.imread(args.image_path)
@@ -24,7 +25,7 @@ def main():
     face_detector = FaceDetector()
     face_direction_finder = FaceDirection()
     face_embedder = FaceEmbedder()
-    face_identifier = FaceIdentifier()
+    face_identifier = FaceIdentifier(threshold=args.threshold)
 
     cropped_faces = face_detector.detect_and_crop(image)
     if not cropped_faces:
