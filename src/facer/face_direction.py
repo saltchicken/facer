@@ -4,7 +4,7 @@ import numpy as np
 from dataclasses import dataclass, field
 
 # Adjust imports for the new structure
-from .utils import get_yaw_pitch_roll, visualize_rotation_vector, plot_selected_landmarks
+from facer.utils import get_yaw_pitch_roll, visualize_rotation_vector, plot_selected_landmarks
 
 @dataclass
 class Direction:
