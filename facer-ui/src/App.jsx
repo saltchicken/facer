@@ -211,7 +211,7 @@ export default function App() {
                             : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'}
                     `}
                   >
-                     <Save className="w-4 h-4" />
+                      <Save className="w-4 h-4" />
                     Save
                   </button>
               </div>
@@ -361,9 +361,9 @@ export default function App() {
                            </div>
 
                            {/* <div className="grid grid-cols-3 gap-2 mb-4"> */}
-                           {/*    <StatBox label="YAW" value={face.pose.yaw} unit="°" /> */}
-                           {/*    <StatBox label="PITCH" value={face.pose.pitch} unit="°" /> */}
-                           {/*    <StatBox label="ROLL" value={face.pose.roll} unit="°" /> */}
+                           {/* <StatBox label="YAW" value={face.pose.yaw} unit="°" /> */}
+                           {/* <StatBox label="PITCH" value={face.pose.pitch} unit="°" /> */}
+                           {/* <StatBox label="ROLL" value={face.pose.roll} unit="°" /> */}
                            {/* </div> */}
 
                            <div className="space-y-2 text-sm">
@@ -455,7 +455,8 @@ function GalleryView() {
                               {face.image_name}
                            </p>
                         </div>
-                        <div className="grid grid-cols-3 gap-1 text-[10px] text-slate-400 font-mono">
+                        {/* ‼️ CHANGED: Removed display for yaw, pitch, and roll in Gallery */}
+                        {/* <div className="grid grid-cols-3 gap-1 text-[10px] text-slate-400 font-mono">
                            <div className="bg-slate-950 p-1 rounded text-center">
                               Y:{Math.round(face.yaw)}°
                            </div>
@@ -465,7 +466,7 @@ function GalleryView() {
                            <div className="bg-slate-950 p-1 rounded text-center">
                               R:{Math.round(face.roll)}°
                            </div>
-                        </div>
+                        </div> */}
                      </div>
                   </div>
                ))}
