@@ -59,7 +59,7 @@ export default function App() {
 
     if (keywords) formData.append('keywords', keywords);
 
-    // ‼️ Change: Updated key from 'class' to 'classification' to match backend expectation
+
     if (faceClass) formData.append('classification', faceClass);
     
     formData.append('save', saveToDb);
@@ -474,7 +474,7 @@ function GalleryView() {
 
                          <div className="mb-2 space-y-1">
                             <div className="flex items-center justify-between">
-                               {/* ‼️ Change: Updated property from face.class to face.classification to match API response */}
+
                                {face.classification && (
                                    <span className="text-[10px] font-bold uppercase bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-500/30">
                                        {face.classification}
