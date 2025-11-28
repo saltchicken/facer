@@ -136,7 +136,7 @@ def get_face_image(face_id: int):
 async def analyze_image(
     file: UploadFile = File(...),
     description: str = Form(None),
-    save: bool = Form(False) # ‼️ Added save flag, defaults to False
+    save: bool = Form(False)
 ):
     # 1. Read Image
     try:
@@ -192,7 +192,7 @@ async def analyze_image(
         db_payload.append((face_data, face_bytes))
 
     # 7. Save (Only if requested)
-    if save and db_payload: # ‼️ Check save flag
+    if save and db_payload:
         save_to_db(file.filename, description, db_payload)
 
     return AnalysisResponse(
