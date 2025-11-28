@@ -28,15 +28,15 @@ export default function App() {
   const processFile = (file, saveToDb = false) => {
     setLoading(true);
     setSaveSuccess(false);
-    
+
     // Only reset analysis data if we are loading a NEW file (not saving existing)
     if (!saveToDb) {
         setAnalysisData(null);
         setError(null);
-        
+
         const objectUrl = URL.createObjectURL(file);
         setPreviewUrl(objectUrl);
-        
+
         const img = new Image();
         img.onload = () => {
           setImageDimensions({ width: img.naturalWidth, height: img.naturalHeight });
@@ -102,7 +102,7 @@ export default function App() {
             </div>
             <h1 className="text-xl font-bold tracking-tight text-white">Facer <span className="text-slate-500 font-normal text-sm ml-2">v0.1.0</span></h1>
           </div>
-          
+
           <div className="flex bg-slate-800 p-1 rounded-lg">
              <button 
                 onClick={() => setCurrentView('analyze')}
@@ -119,7 +119,7 @@ export default function App() {
                 Gallery
              </button>
           </div>
-          
+
           <div className="flex items-center gap-4 text-sm text-slate-400">
               <div className="flex items-center gap-2 px-3 py-1 bg-slate-800 rounded-full border border-slate-700">
                 <div className={`w-2 h-2 rounded-full ${analysisData ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-slate-500'}`}></div>
@@ -130,7 +130,7 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        
+
         {/* Error Message */}
         {error && (
           <div className="mb-6 p-4 bg-red-900/20 border border-red-800 rounded-lg flex items-center gap-3 text-red-200">
@@ -151,7 +151,7 @@ export default function App() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             {/* Left Column: Input & Visualization */}
             <div className="lg:col-span-7 space-y-6">
-              
+
               <input 
                 type="file" 
                 ref={fileInputRef} 
@@ -217,7 +217,7 @@ export default function App() {
                         alt="Preview" 
                         className="max-h-[600px] w-auto max-w-full object-contain col-start-1 row-start-1 z-10 block" 
                       />
-                      
+
                       {analysisData && imageDimensions.width > 0 && (
                         <svg 
                           viewBox={`0 0 ${imageDimensions.width} ${imageDimensions.height}`} 
@@ -256,7 +256,7 @@ export default function App() {
                         </svg>
                       )}
                     </div>
-                    
+
                     {loading && (
                       <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-30">
                         <RefreshCw className="w-10 h-10 text-indigo-500 animate-spin" />
@@ -395,7 +395,7 @@ function GalleryView() {
             <Database className="w-6 h-6 text-indigo-400" />
             Database Gallery
          </h2>
-         
+
          {faces.length === 0 ? (
             <div className="text-center p-20 bg-slate-900/50 rounded-2xl border border-slate-800 border-dashed">
                <p className="text-slate-500">No faces enrolled in database yet.</p>
