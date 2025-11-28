@@ -1,6 +1,6 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response # ‼️ Import Response for serving images
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import cv2
@@ -56,21 +56,28 @@ async def shutdown_event():
     import gc
     gc.collect()
 
-def save_to_db(filename: str, faces_with_images: list):
+def save_to_db(filename: str, description: str, faces_with_images: list):
     try:
         conn = psycopg2.connect(DB_DSN)
         with conn:
             with conn.cursor() as cur:
                 for face_data, face_img_bytes in faces_with_images:
                     embedding_val = str(face_data.embedding) if face_data.embedding else None
+                    
                     cur.execute("""
                         INSERT INTO faces (
-                            image_name, bbox, yaw, pitch, roll, embedding, is_valid_pose, face_image
+                            image_name, description, bbox, yaw, pitch, roll, embedding, is_valid_pose, face_image
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
-                        filename, face_data.bbox, face_data.pose.yaw, face_data.pose.pitch, 
-                        face_data.pose.roll, embedding_val, face_data.is_valid_pose,
+                        filename, 
+                        description,
+                        face_data.bbox, 
+                        face_data.pose.yaw, 
+                        face_data.pose.pitch, 
+                        face_data.pose.roll, 
+                        embedding_val, 
+                        face_data.is_valid_pose,
                         Binary(face_img_bytes) if face_img_bytes else None
                     ))
         print(f"✅ Saved {len(faces_with_images)} faces to DB.")
@@ -78,15 +85,13 @@ def save_to_db(filename: str, faces_with_images: list):
     except Exception as e:
         print(f"❌ Database Error: {e}")
 
-# ‼️ NEW: Endpoint to get list of faces
 @app.get("/faces")
 def get_faces(limit: int = 100, offset: int = 0):
     try:
         conn = psycopg2.connect(DB_DSN)
         with conn.cursor() as cur:
-            # Select metadata only (not the heavy image blob)
             cur.execute("""
-                SELECT id, image_name, is_valid_pose, yaw, pitch, roll, created_at
+                SELECT id, image_name, is_valid_pose, yaw, pitch, roll, created_at, description
                 FROM faces
                 ORDER BY created_at DESC
                 LIMIT %s OFFSET %s
@@ -102,7 +107,8 @@ def get_faces(limit: int = 100, offset: int = 0):
                     "yaw": row[3],
                     "pitch": row[4],
                     "roll": row[5],
-                    "created_at": row[6]
+                    "created_at": row[6],
+                    "description": row[7]
                 })
         conn.close()
         return faces
@@ -110,7 +116,6 @@ def get_faces(limit: int = 100, offset: int = 0):
         print(f"DB Error: {e}")
         return []
 
-# ‼️ NEW: Endpoint to serve the raw image bytes
 @app.get("/faces/{face_id}/image")
 def get_face_image(face_id: int):
     try:
@@ -120,7 +125,6 @@ def get_face_image(face_id: int):
             row = cur.fetchone()
             
             if row and row[0]:
-                # Return bytes as an image response
                 return Response(content=row[0], media_type="image/jpeg")
             else:
                 return Response(status_code=404)
@@ -129,7 +133,11 @@ def get_face_image(face_id: int):
         return Response(status_code=500)
 
 @app.post("/analyze", response_model=AnalysisResponse)
-async def analyze_image(file: UploadFile = File(...)):
+async def analyze_image(
+    file: UploadFile = File(...),
+    description: str = Form(None),
+    save: bool = Form(False) # ‼️ Added save flag, defaults to False
+):
     # 1. Read Image
     try:
         contents = await file.read()
@@ -183,9 +191,9 @@ async def analyze_image(file: UploadFile = File(...)):
         results.append(face_data)
         db_payload.append((face_data, face_bytes))
 
-    # 7. Save
-    if db_payload:
-        save_to_db(file.filename, db_payload)
+    # 7. Save (Only if requested)
+    if save and db_payload: # ‼️ Check save flag
+        save_to_db(file.filename, description, db_payload)
 
     return AnalysisResponse(
         filename=file.filename,

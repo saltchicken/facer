@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, Camera, CheckCircle, XCircle, Database, Server, RefreshCw, Box, Grid, LayoutDashboard } from 'lucide-react';
+import { Upload, Camera, CheckCircle, XCircle, Database, Server, RefreshCw, Box, Grid, LayoutDashboard, Save } from 'lucide-react'; // ‼️ Added Save icon
 
 const API_URL = '/analyze';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState('analyze'); // ‼️ 'analyze' or 'gallery'
-  const [selectedImage, setSelectedImage] = useState(null);
+  const [currentView, setCurrentView] = useState('analyze'); 
+  const [currentFile, setCurrentFile] = useState(null); // ‼️ NEW: Store file in memory
+  const [description, setDescription] = useState(""); 
   const [previewUrl, setPreviewUrl] = useState(null);
   const [analysisData, setAnalysisData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false); // ‼️ NEW: Success state
   const [error, setError] = useState(null);
   const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
   const fileInputRef = useRef(null);
@@ -16,27 +18,39 @@ export default function App() {
   const handleFileSelect = (event) => {
     const file = event.target.files[0];
     if (file) {
-      processFile(file);
+      setCurrentFile(file); // ‼️ Store file
+      processFile(file, false); // ‼️ Initial scan: Don't save
     }
     event.target.value = ''; 
   };
 
-  const processFile = (file) => {
+  // ‼️ Updated: Accepts saveToDb flag
+  const processFile = (file, saveToDb = false) => {
     setLoading(true);
-    setAnalysisData(null);
-    setError(null);
-
-    const objectUrl = URL.createObjectURL(file);
-    setPreviewUrl(objectUrl);
+    setSaveSuccess(false);
     
-    const img = new Image();
-    img.onload = () => {
-      setImageDimensions({ width: img.naturalWidth, height: img.naturalHeight });
-    };
-    img.src = objectUrl;
+    // Only reset analysis data if we are loading a NEW file (not saving existing)
+    if (!saveToDb) {
+        setAnalysisData(null);
+        setError(null);
+        
+        const objectUrl = URL.createObjectURL(file);
+        setPreviewUrl(objectUrl);
+        
+        const img = new Image();
+        img.onload = () => {
+          setImageDimensions({ width: img.naturalWidth, height: img.naturalHeight });
+        };
+        img.src = objectUrl;
+    }
 
     const formData = new FormData();
     formData.append('file', file);
+    if (description) {
+        formData.append('description', description);
+    }
+    // ‼️ Send save flag
+    formData.append('save', saveToDb);
 
     fetch(API_URL, {
       method: 'POST',
@@ -49,6 +63,10 @@ export default function App() {
       .then(data => {
         setAnalysisData(data);
         setLoading(false);
+        if (saveToDb) {
+            setSaveSuccess(true); // ‼️ Show success
+            setTimeout(() => setSaveSuccess(false), 3000);
+        }
       })
       .catch(err => {
         console.error(err);
@@ -57,11 +75,19 @@ export default function App() {
       });
   };
 
+  const handleSave = () => {
+      if (currentFile) {
+          processFile(currentFile, true); // ‼️ Trigger save
+      }
+  };
+
   const onDragOver = (e) => e.preventDefault();
   const onDrop = (e) => {
     e.preventDefault();
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      processFile(e.dataTransfer.files[0]);
+      const file = e.dataTransfer.files[0];
+      setCurrentFile(file);
+      processFile(file, false);
     }
   };
 
@@ -77,7 +103,6 @@ export default function App() {
             <h1 className="text-xl font-bold tracking-tight text-white">Facer <span className="text-slate-500 font-normal text-sm ml-2">v0.1.0</span></h1>
           </div>
           
-          {/* ‼️ NEW: Navigation Tabs */}
           <div className="flex bg-slate-800 p-1 rounded-lg">
              <button 
                 onClick={() => setCurrentView('analyze')}
@@ -114,7 +139,14 @@ export default function App() {
           </div>
         )}
 
-        {/* ‼️ Conditional Rendering based on View */}
+        {/* ‼️ Success Message */}
+        {saveSuccess && (
+          <div className="mb-6 p-4 bg-green-900/20 border border-green-800 rounded-lg flex items-center gap-3 text-green-200 animate-pulse">
+            <CheckCircle className="w-5 h-5" />
+            <p>Results and Images saved to database successfully!</p>
+          </div>
+        )}
+
         {currentView === 'analyze' ? (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             {/* Left Column: Input & Visualization */}
@@ -127,6 +159,36 @@ export default function App() {
                 className="hidden" 
                 accept="image/*"
               />
+
+              {/* ‼️ Description & Save Area */}
+              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex gap-4 items-end">
+                  <div className="flex-1">
+                      <label className="block text-xs font-semibold uppercase text-slate-500 mb-2 tracking-wider">
+                         Image Description (Optional)
+                      </label>
+                      <input 
+                          type="text" 
+                          value={description}
+                          onChange={(e) => setDescription(e.target.value)}
+                          placeholder="e.g. Employee ID photos batch 1"
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all"
+                      />
+                  </div>
+                  {/* ‼️ Save Button - Only enabled if we have analyzed data */}
+                  <button
+                    onClick={handleSave}
+                    disabled={!analysisData || loading}
+                    className={`
+                        flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium transition-all
+                        ${!analysisData || loading 
+                            ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
+                            : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/20'}
+                    `}
+                  >
+                    {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    Save Results
+                  </button>
+              </div>
 
               <div 
                 onDragOver={onDragOver}
@@ -301,7 +363,6 @@ export default function App() {
             </div>
           </div>
         ) : (
-           /* ‼️ NEW: Gallery View Component */
            <GalleryView />
         )}
       </main>
@@ -309,7 +370,6 @@ export default function App() {
   );
 }
 
-// ‼️ NEW: Gallery Component
 function GalleryView() {
    const [faces, setFaces] = useState([]);
    const [loading, setLoading] = useState(true);
@@ -345,7 +405,6 @@ function GalleryView() {
                {faces.map(face => (
                   <div key={face.id} className="group bg-slate-900 rounded-xl overflow-hidden border border-slate-800 hover:border-indigo-500/50 transition-all hover:shadow-lg hover:shadow-indigo-500/10">
                      <div className="aspect-square bg-slate-950 relative overflow-hidden">
-                        {/* ‼️ Load image directly from new API endpoint */}
                         <img 
                            src={`/faces/${face.id}/image`} 
                            alt={face.image_name}
@@ -359,8 +418,15 @@ function GalleryView() {
                         </div>
                      </div>
                      <div className="p-3">
-                        <div className="text-xs text-slate-500 truncate mb-2" title={face.image_name}>
-                           {face.image_name}
+                        <div className="mb-2">
+                           {face.description && (
+                              <p className="text-sm font-medium text-slate-200 truncate" title={face.description}>
+                                 {face.description}
+                              </p>
+                           )}
+                           <p className="text-xs text-slate-500 truncate" title={face.image_name}>
+                              {face.image_name}
+                           </p>
                         </div>
                         <div className="grid grid-cols-3 gap-1 text-[10px] text-slate-400 font-mono">
                            <div className="bg-slate-950 p-1 rounded text-center">
