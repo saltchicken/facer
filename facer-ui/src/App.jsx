@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, Camera, CheckCircle, XCircle, Database, Server, RefreshCw, Box, Grid, LayoutDashboard, Save, Scan } from 'lucide-react';
+import { Upload, Camera, CheckCircle, XCircle, Database, Server, RefreshCw, Box, Grid, LayoutDashboard, Save, Scan, Tag, Hash } from 'lucide-react'; 
 
 const API_URL = '/analyze';
 
@@ -7,6 +7,9 @@ export default function App() {
   const [currentView, setCurrentView] = useState('analyze'); 
   const [currentFile, setCurrentFile] = useState(null);
   const [description, setDescription] = useState(""); 
+  const [keywords, setKeywords] = useState("");
+  const [faceClass, setFaceClass] = useState("");
+  
   const [previewUrl, setPreviewUrl] = useState(null);
   const [analysisData, setAnalysisData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -18,11 +21,10 @@ export default function App() {
 
   const handleLocalFile = (file) => {
       setCurrentFile(file);
-      setAnalysisData(null); // Clear previous results
+      setAnalysisData(null); 
       setError(null);
       setSaveSuccess(false);
       
-      // Generate local preview immediately
       const objectUrl = URL.createObjectURL(file);
       setPreviewUrl(objectUrl);
 
@@ -45,7 +47,6 @@ export default function App() {
     setLoading(true);
     setSaveSuccess(false);
 
-    // Only reset analysis data if we are starting a NEW analysis (not saving)
     if (!saveToDb) {
         setAnalysisData(null);
         setError(null);
@@ -53,9 +54,13 @@ export default function App() {
 
     const formData = new FormData();
     formData.append('file', file);
-    if (description) {
-        formData.append('description', description);
-    }
+    if (description) formData.append('description', description);
+    
+
+    if (keywords) formData.append('keywords', keywords);
+
+    if (faceClass) formData.append('class', faceClass);
+    
     formData.append('save', saveToDb);
 
     fetch(API_URL, {
@@ -63,7 +68,6 @@ export default function App() {
       body: formData,
     })
       .then(async res => {
-        // ‼️ UPDATED LOGIC: Parse JSON error details from server
         if (!res.ok) {
             const errorData = await res.json().catch(() => null);
             const errorMessage = errorData?.detail || `Error ${res.status}: ${res.statusText}`;
@@ -81,7 +85,6 @@ export default function App() {
       })
       .catch(err => {
         console.error(err);
-        // ‼️ Remove "Error: " prefix if present to avoid "Error: Error: ..."
         const msg = err.message.replace(/^Error:\s*/, '');
         setError(msg);
         setLoading(false);
@@ -143,7 +146,6 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Error Message */}
         {error && (
           <div className="mb-6 p-4 bg-red-900/20 border border-red-800 rounded-lg flex items-center gap-3 text-red-200">
             <XCircle className="w-5 h-5 flex-shrink-0" />
@@ -151,7 +153,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Success Message */}
         {saveSuccess && (
           <div className="mb-6 p-4 bg-green-900/20 border border-green-800 rounded-lg flex items-center gap-3 text-green-200 animate-pulse">
             <CheckCircle className="w-5 h-5" />
@@ -161,7 +162,6 @@ export default function App() {
 
         {currentView === 'analyze' ? (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            {/* Left Column: Input & Visualization */}
             <div className="lg:col-span-7 space-y-6">
               
               <input 
@@ -172,48 +172,84 @@ export default function App() {
                 accept="image/*"
               />
 
-              {/* Description & Save Area */}
-              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex gap-4 items-end">
-                  <div className="flex-1">
-                      <label className="block text-xs font-semibold uppercase text-slate-500 mb-2 tracking-wider">
-                           Image Description (Optional)
-                      </label>
-                      <input 
-                          type="text" 
-                          value={description}
-                          onChange={(e) => setDescription(e.target.value)}
-                          placeholder="e.g. Employee ID photos batch 1"
-                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all"
-                      />
+              {/* Description, Keywords, Class Inputs */}
+              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-col gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                        <label className="block text-xs font-semibold uppercase text-slate-500 mb-2 tracking-wider">
+                           Image Description
+                        </label>
+                        <input 
+                            type="text" 
+                            value={description}
+                            onChange={(e) => setDescription(e.target.value)}
+                            placeholder="e.g. Employee ID photos batch 1"
+                            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all"
+                        />
+                    </div>
+                    
+                    <div>
+                        <label className="block text-xs font-semibold uppercase text-slate-500 mb-2 tracking-wider">
+                           Keywords (CSV)
+                        </label>
+                        <div className="relative">
+                            <Tag className="absolute left-3 top-2.5 w-4 h-4 text-slate-600" />
+                            <input 
+                                type="text" 
+                                value={keywords}
+                                onChange={(e) => setKeywords(e.target.value)}
+                                placeholder="office, id-card, 2023"
+                                className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-4 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all"
+                            />
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label className="block text-xs font-semibold uppercase text-slate-500 mb-2 tracking-wider">
+                           Class (Category)
+                        </label>
+                         <div className="relative">
+                            <Hash className="absolute left-3 top-2.5 w-4 h-4 text-slate-600" />
+                            <input 
+                                type="text" 
+                                value={faceClass}
+                                onChange={(e) => setFaceClass(e.target.value)}
+                                placeholder="Personnel"
+                                className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-4 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all"
+                            />
+                        </div>
+                    </div>
                   </div>
                   
-                  <button
-                    onClick={() => processFile(currentFile, false)}
-                    disabled={!currentFile || loading}
-                    className={`
-                        flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium transition-all
-                        ${!currentFile || loading 
-                            ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
-                            : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/20'}
-                    `}
-                  >
-                    {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Scan className="w-4 h-4" />}
-                    Analyze
-                  </button>
+                  <div className="flex gap-4 pt-2 border-t border-slate-800 mt-2">
+                      <button
+                        onClick={() => processFile(currentFile, false)}
+                        disabled={!currentFile || loading}
+                        className={`
+                            flex-1 flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg font-medium transition-all
+                            ${!currentFile || loading 
+                                ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
+                                : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/20'}
+                        `}
+                      >
+                        {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Scan className="w-4 h-4" />}
+                        Analyze Only
+                      </button>
 
-                  <button
-                    onClick={handleSave}
-                    disabled={!analysisData || loading}
-                    className={`
-                        flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium transition-all
-                        ${!analysisData || loading 
-                            ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
-                            : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'}
-                    `}
-                  >
-                      <Save className="w-4 h-4" />
-                    Save
-                  </button>
+                      <button
+                        onClick={handleSave}
+                        disabled={!analysisData || loading}
+                        className={`
+                            flex-1 flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg font-medium transition-all
+                            ${!analysisData || loading 
+                                ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
+                                : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'}
+                        `}
+                      >
+                          <Save className="w-4 h-4" />
+                        Save to DB
+                      </button>
+                  </div>
               </div>
 
               <div 
@@ -252,7 +288,7 @@ export default function App() {
                             const [x1, y1, x2, y2] = face.bbox;
                             const width = x2 - x1;
                             const height = y2 - y1;
-                            const color = face.is_valid_pose ? '#22c55e' : '#ef4444'; // Green vs Red
+                            const color = face.is_valid_pose ? '#22c55e' : '#ef4444'; 
 
                             return (
                               <g key={idx}>
@@ -303,7 +339,6 @@ export default function App() {
               )}
             </div>
 
-            {/* Right Column: Results & Stats */}
             <div className="lg:col-span-5 space-y-6">
                <div className="flex items-center justify-between">
                   <h2 className="text-xl font-bold">Analysis Results</h2>
@@ -435,13 +470,37 @@ function GalleryView() {
                         </div>
                      </div>
                      <div className="p-3">
-                        <div className="mb-2">
+
+                        <div className="mb-2 space-y-1">
+                           <div className="flex items-center justify-between">
+
+                               {face.class && (
+                                   <span className="text-[10px] font-bold uppercase bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-500/30">
+                                       {face.class}
+                                   </span>
+                               )}
+                           </div>
+                           
                            {face.description && (
                               <p className="text-sm font-medium text-slate-200 truncate" title={face.description}>
                                  {face.description}
                               </p>
                            )}
-                           <p className="text-xs text-slate-500 truncate" title={face.image_name}>
+                           
+                           {face.keywords && (
+                               <div className="flex flex-wrap gap-1 mt-1">
+                                   {face.keywords.split(',').slice(0, 3).map((kw, i) => (
+                                       <span key={i} className="text-[10px] text-slate-400 bg-slate-800 px-1 rounded">
+                                           #{kw.trim()}
+                                       </span>
+                                   ))}
+                                   {face.keywords.split(',').length > 3 && (
+                                       <span className="text-[10px] text-slate-500">...</span>
+                                   )}
+                               </div>
+                           )}
+
+                           <p className="text-xs text-slate-500 truncate pt-1 border-t border-slate-800 mt-2" title={face.image_name}>
                               {face.image_name}
                            </p>
                         </div>

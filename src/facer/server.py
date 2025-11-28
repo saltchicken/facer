@@ -61,12 +61,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ‼️ UPDATED FUNCTION: Returns the filename (str) instead of just bool
 def check_image_exists(file_hash: str):
     try:
         conn = psycopg2.connect(DB_DSN)
         with conn.cursor() as cur:
-            # ‼️ Fetch image_name to give better error context
             cur.execute("SELECT image_name FROM faces WHERE source_image_hash = %s LIMIT 1", (file_hash,))
             row = cur.fetchone()
             existing_name = row[0] if row else None
@@ -76,7 +74,8 @@ def check_image_exists(file_hash: str):
         print(f"DB Check Error: {e}")
         return None
 
-def save_to_db(filename: str, description: str, faces_with_images: list, file_hash: str):
+
+def save_to_db(filename: str, description: str, keywords: str, classification: str, faces_with_images: list, file_hash: str):
     try:
         conn = psycopg2.connect(DB_DSN)
         with conn:
@@ -84,15 +83,18 @@ def save_to_db(filename: str, description: str, faces_with_images: list, file_ha
                 for face_data, face_img_bytes in faces_with_images:
                     embedding_val = str(face_data.embedding) if face_data.embedding else None
                     
+
                     cur.execute("""
                         INSERT INTO faces (
-                            image_name, description, bbox, yaw, pitch, roll, 
+                            image_name, description, keywords, classification, bbox, yaw, pitch, roll, 
                             embedding, is_valid_pose, face_image, direction, source_image_hash
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
                         filename, 
                         description,
+                        keywords,
+                        classification,
                         face_data.bbox, 
                         face_data.pose.yaw, 
                         face_data.pose.pitch, 
@@ -113,8 +115,9 @@ def get_faces(limit: int = 100, offset: int = 0):
     try:
         conn = psycopg2.connect(DB_DSN)
         with conn.cursor() as cur:
+
             cur.execute("""
-                SELECT id, image_name, is_valid_pose, yaw, pitch, roll, created_at, description, direction
+                SELECT id, image_name, is_valid_pose, yaw, pitch, roll, created_at, description, direction, keywords, classification
                 FROM faces
                 ORDER BY created_at DESC
                 LIMIT %s OFFSET %s
@@ -132,7 +135,9 @@ def get_faces(limit: int = 100, offset: int = 0):
                     "roll": row[5],
                     "created_at": row[6],
                     "description": row[7],
-                    "direction": row[8]
+                    "direction": row[8],
+                    "keywords": row[9],
+                    "classification": row[10]
                 })
         conn.close()
         return faces
@@ -160,6 +165,8 @@ def get_face_image(face_id: int):
 async def analyze_image(
     file: UploadFile = File(...),
     description: str = Form(None),
+    keywords: str = Form(None),
+    classification: str = Form(None),
     save: bool = Form(False)
 ):
     # 1. Read Image
@@ -168,13 +175,11 @@ async def analyze_image(
         
         file_hash = hashlib.sha256(contents).hexdigest()
 
-        # ‼️ UPDATED LOGIC: Get filename and raise detailed error
         if save:
             existing_name = check_image_exists(file_hash)
             if existing_name:
                 raise HTTPException(
                     status_code=409, 
-                    # ‼️ More descriptive message
                     detail=f"Duplicate Image: This image is already in the database as '{existing_name}'."
                 )
 
@@ -232,7 +237,8 @@ async def analyze_image(
 
     # 7. Save (Only if requested)
     if save and db_payload:
-        save_to_db(file.filename, description, db_payload, file_hash)
+
+        save_to_db(file.filename, description, keywords, classification, db_payload, file_hash)
 
     return AnalysisResponse(
         filename=file.filename,
