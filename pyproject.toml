@@ -10,9 +10,10 @@ dependencies = [
   "huggingface_hub",
   "mediapipe",
   "onnxruntime",
-  "fastapi",          # ‼️ New dependency for the API
-  "uvicorn",          # ‼️ New dependency for running the server
-  "python-multipart", # ‼️ New dependency for handling file uploads
+  "fastapi",
+  "uvicorn",
+  "python-multipart",
+  "aiofiles",
 ]
 
 [build-system]
