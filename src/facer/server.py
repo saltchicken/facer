@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+from contextlib import asynccontextmanager
 import cv2
 import numpy as np
 import uvicorn
@@ -16,16 +17,6 @@ from facer.schemas import AnalysisResponse, FaceData, FacePose
 # TODO: Fix this for production
 DB_DSN = "postgresql://saltchicken:password@10.0.0.5:5432/facer_db"
 
-app = FastAPI(title="Facer Service", description="Face Analysis API and Static File Server")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Global instances
 detector = None
 direction_finder = None
@@ -35,26 +26,39 @@ embedder = None
 YAW_THRESHOLD = 25.0
 PITCH_THRESHOLD = 25.0
 
-@app.on_event("startup")
-async def load_models():
-    """Load models once when server starts."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # --- Startup Logic ---
     global detector, direction_finder, embedder
     print("Loading models...")
     detector = FaceDetector()
     direction_finder = FaceDirection()
     embedder = FaceEmbedder()
     print("Models loaded successfully.")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Clear global models on shutdown."""
-    global detector, direction_finder, embedder
+    
+    yield # Server runs here
+    
+    # --- Shutdown Logic ---
     print("Shutting down...")
     detector = None
     direction_finder = None
     embedder = None
     import gc
     gc.collect()
+
+app = FastAPI(
+    title="Facer Service", 
+    description="Face Analysis API and Static File Server",
+    lifespan=lifespan
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def save_to_db(filename: str, description: str, faces_with_images: list):
     try:
@@ -64,11 +68,12 @@ def save_to_db(filename: str, description: str, faces_with_images: list):
                 for face_data, face_img_bytes in faces_with_images:
                     embedding_val = str(face_data.embedding) if face_data.embedding else None
                     
+
                     cur.execute("""
                         INSERT INTO faces (
-                            image_name, description, bbox, yaw, pitch, roll, embedding, is_valid_pose, face_image
+                            image_name, description, bbox, yaw, pitch, roll, embedding, is_valid_pose, face_image, direction
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
                         filename, 
                         description,
@@ -78,7 +83,8 @@ def save_to_db(filename: str, description: str, faces_with_images: list):
                         face_data.pose.roll, 
                         embedding_val, 
                         face_data.is_valid_pose,
-                        Binary(face_img_bytes) if face_img_bytes else None
+                        Binary(face_img_bytes) if face_img_bytes else None,
+                        face_data.pose.direction_label
                     ))
         print(f"✅ Saved {len(faces_with_images)} faces to DB.")
         conn.close()
@@ -90,8 +96,9 @@ def get_faces(limit: int = 100, offset: int = 0):
     try:
         conn = psycopg2.connect(DB_DSN)
         with conn.cursor() as cur:
+
             cur.execute("""
-                SELECT id, image_name, is_valid_pose, yaw, pitch, roll, created_at, description
+                SELECT id, image_name, is_valid_pose, yaw, pitch, roll, created_at, description, direction
                 FROM faces
                 ORDER BY created_at DESC
                 LIMIT %s OFFSET %s
@@ -108,7 +115,8 @@ def get_faces(limit: int = 100, offset: int = 0):
                     "pitch": row[4],
                     "roll": row[5],
                     "created_at": row[6],
-                    "description": row[7]
+                    "description": row[7],
+                    "direction": row[8]
                 })
         conn.close()
         return faces

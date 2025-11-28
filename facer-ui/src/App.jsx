@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, Camera, CheckCircle, XCircle, Database, Server, RefreshCw, Box, Grid, LayoutDashboard, Save } from 'lucide-react';
+
+import { Upload, Camera, CheckCircle, XCircle, Database, Server, RefreshCw, Box, Grid, LayoutDashboard, Save, Scan } from 'lucide-react';
 
 const API_URL = '/analyze';
 
@@ -15,33 +16,42 @@ export default function App() {
   const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
   const fileInputRef = useRef(null);
 
+
+  const handleLocalFile = (file) => {
+      setCurrentFile(file);
+      setAnalysisData(null); // Clear previous results
+      setError(null);
+      setSaveSuccess(false);
+      
+      // Generate local preview immediately
+      const objectUrl = URL.createObjectURL(file);
+      setPreviewUrl(objectUrl);
+
+      const img = new Image();
+      img.onload = () => {
+        setImageDimensions({ width: img.naturalWidth, height: img.naturalHeight });
+      };
+      img.src = objectUrl;
+  };
+
   const handleFileSelect = (event) => {
     const file = event.target.files[0];
     if (file) {
-      setCurrentFile(file);
-      processFile(file, false);
+
+      handleLocalFile(file);
     }
     event.target.value = ''; 
   };
-
 
   const processFile = (file, saveToDb = false) => {
     setLoading(true);
     setSaveSuccess(false);
 
-    // Only reset analysis data if we are loading a NEW file (not saving existing)
+
+    // Only reset analysis data if we are starting a NEW analysis (not saving)
     if (!saveToDb) {
         setAnalysisData(null);
         setError(null);
-
-        const objectUrl = URL.createObjectURL(file);
-        setPreviewUrl(objectUrl);
-
-        const img = new Image();
-        img.onload = () => {
-          setImageDimensions({ width: img.naturalWidth, height: img.naturalHeight });
-        };
-        img.src = objectUrl;
     }
 
     const formData = new FormData();
@@ -86,8 +96,8 @@ export default function App() {
     e.preventDefault();
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const file = e.dataTransfer.files[0];
-      setCurrentFile(file);
-      processFile(file, false);
+
+      handleLocalFile(file);
     }
   };
 
@@ -164,7 +174,7 @@ export default function App() {
               <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex gap-4 items-end">
                   <div className="flex-1">
                       <label className="block text-xs font-semibold uppercase text-slate-500 mb-2 tracking-wider">
-                         Image Description (Optional)
+                           Image Description (Optional)
                       </label>
                       <input 
                           type="text" 
@@ -174,7 +184,23 @@ export default function App() {
                           className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all"
                       />
                   </div>
-                  {/* Save Button - Only enabled if we have analyzed data */}
+                  
+                  {/* ‼️ NEW: Analyze Button (Manual Submit) */}
+                  <button
+                    onClick={() => processFile(currentFile, false)}
+                    disabled={!currentFile || loading}
+                    className={`
+                        flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium transition-all
+                        ${!currentFile || loading 
+                            ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
+                            : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/20'}
+                    `}
+                  >
+                    {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Scan className="w-4 h-4" />}
+                    Analyze
+                  </button>
+
+                  {/* Save Button - ‼️ CHANGED: Styling to Green/Emerald to distinguish 'Saving' from 'Analyzing' */}
                   <button
                     onClick={handleSave}
                     disabled={!analysisData || loading}
@@ -182,11 +208,11 @@ export default function App() {
                         flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium transition-all
                         ${!analysisData || loading 
                             ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
-                            : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/20'}
+                            : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'}
                     `}
                   >
-                    {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    Save Results
+                     <Save className="w-4 h-4" />
+                    Save
                   </button>
               </div>
 
@@ -293,7 +319,8 @@ export default function App() {
                {!analysisData && !loading && (
                   <div className="h-64 flex flex-col items-center justify-center text-slate-600 border border-dashed border-slate-800 rounded-xl bg-slate-900/30">
                      <Box className="w-12 h-12 mb-3 opacity-20" />
-                     <p>Upload an image to see details</p>
+                     {/* ‼️ CHANGED: Update text to reflect manual step */}
+                     <p>Upload an image and click Analyze</p>
                   </div>
                )}
 
@@ -312,8 +339,8 @@ export default function App() {
                        className={`
                          relative overflow-hidden rounded-xl border transition-all duration-300
                          ${face.is_valid_pose 
-                            ? 'bg-slate-900 border-slate-800 hover:border-green-500/50' 
-                            : 'bg-slate-900 border-slate-800 hover:border-red-500/50'}
+                           ? 'bg-slate-900 border-slate-800 hover:border-green-500/50' 
+                           : 'bg-slate-900 border-slate-800 hover:border-red-500/50'}
                        `}
                      >
                         <div className={`absolute left-0 top-0 bottom-0 w-1 ${face.is_valid_pose ? 'bg-green-500' : 'bg-red-500'}`}></div>
@@ -321,23 +348,23 @@ export default function App() {
                         <div className="p-5 pl-6">
                            <div className="flex items-center justify-between mb-4">
                               <h3 className="font-semibold text-lg flex items-center gap-2">
-                                 Face #{idx + 1}
-                                 {face.is_valid_pose ? (
-                                    <span className="text-xs bg-green-500/10 text-green-400 px-2 py-0.5 rounded border border-green-500/20">Enrollable</span>
-                                 ) : (
-                                    <span className="text-xs bg-red-500/10 text-red-400 px-2 py-0.5 rounded border border-red-500/20">Bad Pose</span>
-                                 )}
+                                  Face #{idx + 1}
+                                  {face.is_valid_pose ? (
+                                     <span className="text-xs bg-green-500/10 text-green-400 px-2 py-0.5 rounded border border-green-500/20">Enrollable</span>
+                                  ) : (
+                                     <span className="text-xs bg-red-500/10 text-red-400 px-2 py-0.5 rounded border border-red-500/20">Bad Pose</span>
+                                  )}
                               </h3>
                               <div className="text-xs text-slate-500 font-mono">
-                                 BBOX: [{face.bbox.map(n => Math.round(n)).join(', ')}]
+                                  BBOX: [{face.bbox.map(n => Math.round(n)).join(', ')}]
                               </div>
                            </div>
 
-                           <div className="grid grid-cols-3 gap-2 mb-4">
-                              <StatBox label="YAW" value={face.pose.yaw} unit="°" />
-                              <StatBox label="PITCH" value={face.pose.pitch} unit="°" />
-                              <StatBox label="ROLL" value={face.pose.roll} unit="°" />
-                           </div>
+                           {/* <div className="grid grid-cols-3 gap-2 mb-4"> */}
+                           {/*    <StatBox label="YAW" value={face.pose.yaw} unit="°" /> */}
+                           {/*    <StatBox label="PITCH" value={face.pose.pitch} unit="°" /> */}
+                           {/*    <StatBox label="ROLL" value={face.pose.roll} unit="°" /> */}
+                           {/* </div> */}
 
                            <div className="space-y-2 text-sm">
                               <div className="flex justify-between p-2 bg-slate-950 rounded border border-slate-800">
