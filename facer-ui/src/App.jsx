@@ -185,7 +185,7 @@ export default function App() {
                       />
                   </div>
                   
-                  {/* ‼️ NEW: Analyze Button (Manual Submit) */}
+
                   <button
                     onClick={() => processFile(currentFile, false)}
                     disabled={!currentFile || loading}
@@ -200,7 +200,7 @@ export default function App() {
                     Analyze
                   </button>
 
-                  {/* Save Button - ‼️ CHANGED: Styling to Green/Emerald to distinguish 'Saving' from 'Analyzing' */}
+
                   <button
                     onClick={handleSave}
                     disabled={!analysisData || loading}
@@ -319,7 +319,7 @@ export default function App() {
                {!analysisData && !loading && (
                   <div className="h-64 flex flex-col items-center justify-center text-slate-600 border border-dashed border-slate-800 rounded-xl bg-slate-900/30">
                      <Box className="w-12 h-12 mb-3 opacity-20" />
-                     {/* ‼️ CHANGED: Update text to reflect manual step */}
+
                      <p>Upload an image and click Analyze</p>
                   </div>
                )}
@@ -359,12 +359,6 @@ export default function App() {
                                   BBOX: [{face.bbox.map(n => Math.round(n)).join(', ')}]
                               </div>
                            </div>
-
-                           {/* <div className="grid grid-cols-3 gap-2 mb-4"> */}
-                           {/* <StatBox label="YAW" value={face.pose.yaw} unit="°" /> */}
-                           {/* <StatBox label="PITCH" value={face.pose.pitch} unit="°" /> */}
-                           {/* <StatBox label="ROLL" value={face.pose.roll} unit="°" /> */}
-                           {/* </div> */}
 
                            <div className="space-y-2 text-sm">
                               <div className="flex justify-between p-2 bg-slate-950 rounded border border-slate-800">
@@ -455,18 +449,7 @@ function GalleryView() {
                               {face.image_name}
                            </p>
                         </div>
-                        {/* ‼️ CHANGED: Removed display for yaw, pitch, and roll in Gallery */}
-                        {/* <div className="grid grid-cols-3 gap-1 text-[10px] text-slate-400 font-mono">
-                           <div className="bg-slate-950 p-1 rounded text-center">
-                              Y:{Math.round(face.yaw)}°
-                           </div>
-                           <div className="bg-slate-950 p-1 rounded text-center">
-                              P:{Math.round(face.pitch)}°
-                           </div>
-                           <div className="bg-slate-950 p-1 rounded text-center">
-                              R:{Math.round(face.roll)}°
-                           </div>
-                        </div> */}
+
                      </div>
                   </div>
                ))}
