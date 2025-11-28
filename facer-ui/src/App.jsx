@@ -59,7 +59,8 @@ export default function App() {
 
     if (keywords) formData.append('keywords', keywords);
 
-    if (faceClass) formData.append('class', faceClass);
+    // ‼️ Change: Updated key from 'class' to 'classification' to match backend expectation
+    if (faceClass) formData.append('classification', faceClass);
     
     formData.append('save', saveToDb);
 
@@ -359,7 +360,7 @@ export default function App() {
                {loading && (
                   <div className="space-y-4">
                       {[1, 2].map(i => (
-                         <div key={i} className="h-32 bg-slate-900 rounded-xl animate-pulse"></div>
+                          <div key={i} className="h-32 bg-slate-900 rounded-xl animate-pulse"></div>
                       ))}
                   </div>
                )}
@@ -375,40 +376,40 @@ export default function App() {
                             : 'bg-slate-900 border-slate-800 hover:border-red-500/50'}
                         `}
                       >
-                         <div className={`absolute left-0 top-0 bottom-0 w-1 ${face.is_valid_pose ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                         <div className="p-5 pl-6">
-                            <div className="flex items-center justify-between mb-4">
-                               <h3 className="font-semibold text-lg flex items-center gap-2">
+                          <div className={`absolute left-0 top-0 bottom-0 w-1 ${face.is_valid_pose ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                          <div className="p-5 pl-6">
+                             <div className="flex items-center justify-between mb-4">
+                                <h3 className="font-semibold text-lg flex items-center gap-2">
                                    Face #{idx + 1}
                                    {face.is_valid_pose ? (
                                       <span className="text-xs bg-green-500/10 text-green-400 px-2 py-0.5 rounded border border-green-500/20">Enrollable</span>
                                    ) : (
                                       <span className="text-xs bg-red-500/10 text-red-400 px-2 py-0.5 rounded border border-red-500/20">Bad Pose</span>
                                    )}
-                               </h3>
-                               <div className="text-xs text-slate-500 font-mono">
-                                   BBOX: [{face.bbox.map(n => Math.round(n)).join(', ')}]
-                               </div>
-                            </div>
+                                </h3>
+                                <div className="text-xs text-slate-500 font-mono">
+                                    BBOX: [{face.bbox.map(n => Math.round(n)).join(', ')}]
+                                </div>
+                             </div>
 
-                            <div className="space-y-2 text-sm">
-                               <div className="flex justify-between p-2 bg-slate-950 rounded border border-slate-800">
-                                  <span className="text-slate-400">Direction</span>
-                                  <span className="font-medium text-white capitalize">{face.pose.direction_label}</span>
-                               </div>
-                               <div className="flex justify-between p-2 bg-slate-950 rounded border border-slate-800">
-                                  <span className="text-slate-400">Vector Embedding</span>
-                                  {face.embedding ? (
-                                     <span className="font-mono text-green-400 flex items-center gap-1">
-                                         <CheckCircle className="w-3 h-3" />
-                                         Generated (512d)
-                                     </span>
-                                  ) : (
-                                     <span className="font-mono text-slate-500">Skipped</span>
-                                  )}
-                               </div>
-                            </div>
-                         </div>
+                             <div className="space-y-2 text-sm">
+                                <div className="flex justify-between p-2 bg-slate-950 rounded border border-slate-800">
+                                   <span className="text-slate-400">Direction</span>
+                                   <span className="font-medium text-white capitalize">{face.pose.direction_label}</span>
+                                </div>
+                                <div className="flex justify-between p-2 bg-slate-950 rounded border border-slate-800">
+                                   <span className="text-slate-400">Vector Embedding</span>
+                                   {face.embedding ? (
+                                      <span className="font-mono text-green-400 flex items-center gap-1">
+                                           <CheckCircle className="w-3 h-3" />
+                                           Generated (512d)
+                                      </span>
+                                   ) : (
+                                      <span className="font-mono text-slate-500">Skipped</span>
+                                   )}
+                                </div>
+                             </div>
+                          </div>
                       </div>
                   ))}
                </div>
@@ -456,38 +457,38 @@ function GalleryView() {
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
                {faces.map(face => (
                   <div key={face.id} className="group bg-slate-900 rounded-xl overflow-hidden border border-slate-800 hover:border-indigo-500/50 transition-all hover:shadow-lg hover:shadow-indigo-500/10">
-                     <div className="aspect-square bg-slate-950 relative overflow-hidden">
-                        <img 
-                           src={`/faces/${face.id}/image`} 
-                           alt={face.image_name}
-                           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                           loading="lazy"
-                        />
-                        <div className={`absolute top-2 right-2 px-2 py-1 text-[10px] font-bold uppercase rounded border backdrop-blur-md
-                           ${face.is_valid_pose ? 'bg-green-500/20 text-green-300 border-green-500/30' : 'bg-red-500/20 text-red-300 border-red-500/30'}
-                        `}>
-                           {face.is_valid_pose ? 'Valid' : 'Invalid'}
-                        </div>
-                     </div>
-                     <div className="p-3">
+                      <div className="aspect-square bg-slate-950 relative overflow-hidden">
+                         <img 
+                            src={`/faces/${face.id}/image`} 
+                            alt={face.image_name}
+                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                            loading="lazy"
+                         />
+                         <div className={`absolute top-2 right-2 px-2 py-1 text-[10px] font-bold uppercase rounded border backdrop-blur-md
+                            ${face.is_valid_pose ? 'bg-green-500/20 text-green-300 border-green-500/30' : 'bg-red-500/20 text-red-300 border-red-500/30'}
+                         `}>
+                            {face.is_valid_pose ? 'Valid' : 'Invalid'}
+                         </div>
+                      </div>
+                      <div className="p-3">
 
-                        <div className="mb-2 space-y-1">
-                           <div className="flex items-center justify-between">
-
-                               {face.class && (
+                         <div className="mb-2 space-y-1">
+                            <div className="flex items-center justify-between">
+                               {/* ‼️ Change: Updated property from face.class to face.classification to match API response */}
+                               {face.classification && (
                                    <span className="text-[10px] font-bold uppercase bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-500/30">
-                                       {face.class}
+                                       {face.classification}
                                    </span>
                                )}
-                           </div>
-                           
-                           {face.description && (
-                              <p className="text-sm font-medium text-slate-200 truncate" title={face.description}>
-                                 {face.description}
-                              </p>
-                           )}
-                           
-                           {face.keywords && (
+                            </div>
+                            
+                            {face.description && (
+                               <p className="text-sm font-medium text-slate-200 truncate" title={face.description}>
+                                   {face.description}
+                               </p>
+                            )}
+                            
+                            {face.keywords && (
                                <div className="flex flex-wrap gap-1 mt-1">
                                    {face.keywords.split(',').slice(0, 3).map((kw, i) => (
                                        <span key={i} className="text-[10px] text-slate-400 bg-slate-800 px-1 rounded">
@@ -498,13 +499,13 @@ function GalleryView() {
                                        <span className="text-[10px] text-slate-500">...</span>
                                    )}
                                </div>
-                           )}
+                            )}
 
-                           <p className="text-xs text-slate-500 truncate pt-1 border-t border-slate-800 mt-2" title={face.image_name}>
-                              {face.image_name}
-                           </p>
-                        </div>
-                     </div>
+                            <p className="text-xs text-slate-500 truncate pt-1 border-t border-slate-800 mt-2" title={face.image_name}>
+                               {face.image_name}
+                            </p>
+                         </div>
+                      </div>
                   </div>
                ))}
             </div>
