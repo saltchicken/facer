@@ -5,12 +5,14 @@ description = "A combined project for face detection and orientation."
 requires-python = ">=3.8"
 
 dependencies = [
-    "ultralytics",
-    "opencv-python",
-    "huggingface_hub",
-    "mediapipe",
-    "onnxruntime",
-
+  "ultralytics",
+  "opencv-python",
+  "huggingface_hub",
+  "mediapipe",
+  "onnxruntime",
+  "fastapi",          # ‼️ New dependency for the API
+  "uvicorn",          # ‼️ New dependency for running the server
+  "python-multipart", # ‼️ New dependency for handling file uploads
 ]
 
 [build-system]

@@ -50,17 +50,23 @@ class FaceDetector:
         return cropped_image
 
     def detect_and_crop(self, image_array: np.ndarray) -> list:
-        """Detects faces in an image and returns a list of cropped face images."""
+        """
+        Detects faces in an image.
+        Returns a list of tuples: (cropped_face_image, bounding_box) ‼️
+        """
         try:
             results = self._model(image_array)
             
-            cropped_faces = []
+            detected_data = [] # ‼️ Renamed variable to store tuples
             if results and len(results[0].boxes.xyxy) > 0:
                 for bbox in results[0].boxes.xyxy:
                     cropped_face = self._crop_and_center_face(image_array, bbox)
-                    cropped_faces.append(cropped_face)
+                    
+                    # ‼️ Convert tensor bbox to a standard list of floats for easy JSON serialization later
+                    bbox_list = [float(x) for x in bbox.tolist()] 
+                    detected_data.append((cropped_face, bbox_list)) # ‼️ Return both image and coordinates
             
-            return cropped_faces
+            return detected_data
         
         except Exception as e:
             print(f"An error occurred during face detection: {e}")
