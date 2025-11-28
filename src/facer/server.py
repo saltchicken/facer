@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import uvicorn
 import psycopg2
+import hashlib
 from psycopg2 import Binary
 from facer.face_detector import FaceDetector
 from facer.face_direction import FaceDirection
@@ -60,7 +61,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def save_to_db(filename: str, description: str, faces_with_images: list):
+# ‼️ UPDATED FUNCTION: Returns the filename (str) instead of just bool
+def check_image_exists(file_hash: str):
+    try:
+        conn = psycopg2.connect(DB_DSN)
+        with conn.cursor() as cur:
+            # ‼️ Fetch image_name to give better error context
+            cur.execute("SELECT image_name FROM faces WHERE source_image_hash = %s LIMIT 1", (file_hash,))
+            row = cur.fetchone()
+            existing_name = row[0] if row else None
+        conn.close()
+        return existing_name
+    except Exception as e:
+        print(f"DB Check Error: {e}")
+        return None
+
+def save_to_db(filename: str, description: str, faces_with_images: list, file_hash: str):
     try:
         conn = psycopg2.connect(DB_DSN)
         with conn:
@@ -68,12 +84,12 @@ def save_to_db(filename: str, description: str, faces_with_images: list):
                 for face_data, face_img_bytes in faces_with_images:
                     embedding_val = str(face_data.embedding) if face_data.embedding else None
                     
-
                     cur.execute("""
                         INSERT INTO faces (
-                            image_name, description, bbox, yaw, pitch, roll, embedding, is_valid_pose, face_image, direction
+                            image_name, description, bbox, yaw, pitch, roll, 
+                            embedding, is_valid_pose, face_image, direction, source_image_hash
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
                         filename, 
                         description,
@@ -84,7 +100,8 @@ def save_to_db(filename: str, description: str, faces_with_images: list):
                         embedding_val, 
                         face_data.is_valid_pose,
                         Binary(face_img_bytes) if face_img_bytes else None,
-                        face_data.pose.direction_label
+                        face_data.pose.direction_label,
+                        file_hash
                     ))
         print(f"✅ Saved {len(faces_with_images)} faces to DB.")
         conn.close()
@@ -96,7 +113,6 @@ def get_faces(limit: int = 100, offset: int = 0):
     try:
         conn = psycopg2.connect(DB_DSN)
         with conn.cursor() as cur:
-
             cur.execute("""
                 SELECT id, image_name, is_valid_pose, yaw, pitch, roll, created_at, description, direction
                 FROM faces
@@ -149,9 +165,24 @@ async def analyze_image(
     # 1. Read Image
     try:
         contents = await file.read()
+        
+        file_hash = hashlib.sha256(contents).hexdigest()
+
+        # ‼️ UPDATED LOGIC: Get filename and raise detailed error
+        if save:
+            existing_name = check_image_exists(file_hash)
+            if existing_name:
+                raise HTTPException(
+                    status_code=409, 
+                    # ‼️ More descriptive message
+                    detail=f"Duplicate Image: This image is already in the database as '{existing_name}'."
+                )
+
         nparr = np.frombuffer(contents, np.uint8)
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if image is None: raise ValueError("Could not decode")
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -195,13 +226,13 @@ async def analyze_image(
         
         success, buffer = cv2.imencode('.jpg', face_crop)
         face_bytes = buffer.tobytes() if success else None
-
+        
         results.append(face_data)
         db_payload.append((face_data, face_bytes))
 
     # 7. Save (Only if requested)
     if save and db_payload:
-        save_to_db(file.filename, description, db_payload)
+        save_to_db(file.filename, description, db_payload, file_hash)
 
     return AnalysisResponse(
         filename=file.filename,

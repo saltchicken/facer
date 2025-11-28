@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-
 import { Upload, Camera, CheckCircle, XCircle, Database, Server, RefreshCw, Box, Grid, LayoutDashboard, Save, Scan } from 'lucide-react';
 
 const API_URL = '/analyze';
@@ -14,8 +13,8 @@ export default function App() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [error, setError] = useState(null);
   const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
+  
   const fileInputRef = useRef(null);
-
 
   const handleLocalFile = (file) => {
       setCurrentFile(file);
@@ -37,7 +36,6 @@ export default function App() {
   const handleFileSelect = (event) => {
     const file = event.target.files[0];
     if (file) {
-
       handleLocalFile(file);
     }
     event.target.value = ''; 
@@ -46,7 +44,6 @@ export default function App() {
   const processFile = (file, saveToDb = false) => {
     setLoading(true);
     setSaveSuccess(false);
-
 
     // Only reset analysis data if we are starting a NEW analysis (not saving)
     if (!saveToDb) {
@@ -59,15 +56,19 @@ export default function App() {
     if (description) {
         formData.append('description', description);
     }
-
     formData.append('save', saveToDb);
 
     fetch(API_URL, {
       method: 'POST',
       body: formData,
     })
-      .then(res => {
-        if (!res.ok) throw new Error("API Connection Failed. Is server.py running?");
+      .then(async res => {
+        // ‼️ UPDATED LOGIC: Parse JSON error details from server
+        if (!res.ok) {
+            const errorData = await res.json().catch(() => null);
+            const errorMessage = errorData?.detail || `Error ${res.status}: ${res.statusText}`;
+            throw new Error(errorMessage);
+        }
         return res.json();
       })
       .then(data => {
@@ -80,7 +81,9 @@ export default function App() {
       })
       .catch(err => {
         console.error(err);
-        setError(err.message);
+        // ‼️ Remove "Error: " prefix if present to avoid "Error: Error: ..."
+        const msg = err.message.replace(/^Error:\s*/, '');
+        setError(msg);
         setLoading(false);
       });
   };
@@ -92,11 +95,11 @@ export default function App() {
   };
 
   const onDragOver = (e) => e.preventDefault();
+  
   const onDrop = (e) => {
     e.preventDefault();
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const file = e.dataTransfer.files[0];
-
       handleLocalFile(file);
     }
   };
@@ -112,7 +115,7 @@ export default function App() {
             </div>
             <h1 className="text-xl font-bold tracking-tight text-white">Facer <span className="text-slate-500 font-normal text-sm ml-2">v0.1.0</span></h1>
           </div>
-
+          
           <div className="flex bg-slate-800 p-1 rounded-lg">
              <button 
                 onClick={() => setCurrentView('analyze')}
@@ -140,11 +143,10 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-
         {/* Error Message */}
         {error && (
           <div className="mb-6 p-4 bg-red-900/20 border border-red-800 rounded-lg flex items-center gap-3 text-red-200">
-            <XCircle className="w-5 h-5" />
+            <XCircle className="w-5 h-5 flex-shrink-0" />
             <p>{error}</p>
           </div>
         )}
@@ -161,7 +163,7 @@ export default function App() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             {/* Left Column: Input & Visualization */}
             <div className="lg:col-span-7 space-y-6">
-
+              
               <input 
                 type="file" 
                 ref={fileInputRef} 
@@ -185,7 +187,6 @@ export default function App() {
                       />
                   </div>
                   
-
                   <button
                     onClick={() => processFile(currentFile, false)}
                     disabled={!currentFile || loading}
@@ -199,7 +200,6 @@ export default function App() {
                     {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Scan className="w-4 h-4" />}
                     Analyze
                   </button>
-
 
                   <button
                     onClick={handleSave}
@@ -243,7 +243,6 @@ export default function App() {
                         alt="Preview" 
                         className="max-h-[600px] w-auto max-w-full object-contain col-start-1 row-start-1 z-10 block" 
                       />
-
                       {analysisData && imageDimensions.width > 0 && (
                         <svg 
                           viewBox={`0 0 ${imageDimensions.width} ${imageDimensions.height}`} 
@@ -282,7 +281,6 @@ export default function App() {
                         </svg>
                       )}
                     </div>
-
                     {loading && (
                       <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-30">
                         <RefreshCw className="w-10 h-10 text-indigo-500 animate-spin" />
@@ -293,15 +291,15 @@ export default function App() {
               </div>
 
               {analysisData && (
-                 <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
+                  <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
                     <div className="px-4 py-3 border-b border-slate-800 bg-slate-800/50 flex items-center gap-2">
-                       <Database className="w-4 h-4 text-slate-400" />
-                       <h3 className="text-sm font-medium text-slate-300">Raw Analysis (DB Payload)</h3>
+                        <Database className="w-4 h-4 text-slate-400" />
+                        <h3 className="text-sm font-medium text-slate-300">Raw Analysis (DB Payload)</h3>
                     </div>
                     <pre className="p-4 overflow-x-auto text-xs font-mono text-indigo-300 bg-slate-950/50">
-                       {JSON.stringify(analysisData, null, 2)}
+                        {JSON.stringify(analysisData, null, 2)}
                     </pre>
-                 </div>
+                  </div>
               )}
             </div>
 
@@ -310,75 +308,73 @@ export default function App() {
                <div className="flex items-center justify-between">
                   <h2 className="text-xl font-bold">Analysis Results</h2>
                   {analysisData && (
-                     <span className="text-sm px-3 py-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-full">
-                        {analysisData.face_count} Faces Detected
-                     </span>
+                      <span className="text-sm px-3 py-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-full">
+                         {analysisData.face_count} Faces Detected
+                      </span>
                   )}
                </div>
 
                {!analysisData && !loading && (
                   <div className="h-64 flex flex-col items-center justify-center text-slate-600 border border-dashed border-slate-800 rounded-xl bg-slate-900/30">
-                     <Box className="w-12 h-12 mb-3 opacity-20" />
-
-                     <p>Upload an image and click Analyze</p>
+                      <Box className="w-12 h-12 mb-3 opacity-20" />
+                      <p>Upload an image and click Analyze</p>
                   </div>
                )}
 
                {loading && (
                   <div className="space-y-4">
-                     {[1, 2].map(i => (
-                        <div key={i} className="h-32 bg-slate-900 rounded-xl animate-pulse"></div>
-                     ))}
+                      {[1, 2].map(i => (
+                         <div key={i} className="h-32 bg-slate-900 rounded-xl animate-pulse"></div>
+                      ))}
                   </div>
                )}
 
                <div className="space-y-4">
                   {analysisData?.results.map((face, idx) => (
-                     <div 
-                       key={idx} 
-                       className={`
-                         relative overflow-hidden rounded-xl border transition-all duration-300
-                         ${face.is_valid_pose 
-                           ? 'bg-slate-900 border-slate-800 hover:border-green-500/50' 
-                           : 'bg-slate-900 border-slate-800 hover:border-red-500/50'}
-                       `}
-                     >
-                        <div className={`absolute left-0 top-0 bottom-0 w-1 ${face.is_valid_pose ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                      <div 
+                        key={idx} 
+                        className={`
+                          relative overflow-hidden rounded-xl border transition-all duration-300
+                          ${face.is_valid_pose 
+                            ? 'bg-slate-900 border-slate-800 hover:border-green-500/50' 
+                            : 'bg-slate-900 border-slate-800 hover:border-red-500/50'}
+                        `}
+                      >
+                         <div className={`absolute left-0 top-0 bottom-0 w-1 ${face.is_valid_pose ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                         <div className="p-5 pl-6">
+                            <div className="flex items-center justify-between mb-4">
+                               <h3 className="font-semibold text-lg flex items-center gap-2">
+                                   Face #{idx + 1}
+                                   {face.is_valid_pose ? (
+                                      <span className="text-xs bg-green-500/10 text-green-400 px-2 py-0.5 rounded border border-green-500/20">Enrollable</span>
+                                   ) : (
+                                      <span className="text-xs bg-red-500/10 text-red-400 px-2 py-0.5 rounded border border-red-500/20">Bad Pose</span>
+                                   )}
+                               </h3>
+                               <div className="text-xs text-slate-500 font-mono">
+                                   BBOX: [{face.bbox.map(n => Math.round(n)).join(', ')}]
+                               </div>
+                            </div>
 
-                        <div className="p-5 pl-6">
-                           <div className="flex items-center justify-between mb-4">
-                              <h3 className="font-semibold text-lg flex items-center gap-2">
-                                  Face #{idx + 1}
-                                  {face.is_valid_pose ? (
-                                     <span className="text-xs bg-green-500/10 text-green-400 px-2 py-0.5 rounded border border-green-500/20">Enrollable</span>
+                            <div className="space-y-2 text-sm">
+                               <div className="flex justify-between p-2 bg-slate-950 rounded border border-slate-800">
+                                  <span className="text-slate-400">Direction</span>
+                                  <span className="font-medium text-white capitalize">{face.pose.direction_label}</span>
+                               </div>
+                               <div className="flex justify-between p-2 bg-slate-950 rounded border border-slate-800">
+                                  <span className="text-slate-400">Vector Embedding</span>
+                                  {face.embedding ? (
+                                     <span className="font-mono text-green-400 flex items-center gap-1">
+                                         <CheckCircle className="w-3 h-3" />
+                                         Generated (512d)
+                                     </span>
                                   ) : (
-                                     <span className="text-xs bg-red-500/10 text-red-400 px-2 py-0.5 rounded border border-red-500/20">Bad Pose</span>
+                                     <span className="font-mono text-slate-500">Skipped</span>
                                   )}
-                              </h3>
-                              <div className="text-xs text-slate-500 font-mono">
-                                  BBOX: [{face.bbox.map(n => Math.round(n)).join(', ')}]
-                              </div>
-                           </div>
-
-                           <div className="space-y-2 text-sm">
-                              <div className="flex justify-between p-2 bg-slate-950 rounded border border-slate-800">
-                                 <span className="text-slate-400">Direction</span>
-                                 <span className="font-medium text-white capitalize">{face.pose.direction_label}</span>
-                              </div>
-                              <div className="flex justify-between p-2 bg-slate-950 rounded border border-slate-800">
-                                 <span className="text-slate-400">Vector Embedding</span>
-                                 {face.embedding ? (
-                                    <span className="font-mono text-green-400 flex items-center gap-1">
-                                       <CheckCircle className="w-3 h-3" />
-                                       Generated (512d)
-                                    </span>
-                                 ) : (
-                                    <span className="font-mono text-slate-500">Skipped</span>
-                                 )}
-                              </div>
-                           </div>
-                        </div>
-                     </div>
+                               </div>
+                            </div>
+                         </div>
+                      </div>
                   ))}
                </div>
             </div>
@@ -449,24 +445,11 @@ function GalleryView() {
                               {face.image_name}
                            </p>
                         </div>
-
                      </div>
                   </div>
                ))}
             </div>
          )}
-      </div>
-   );
-}
-
-function StatBox({ label, value, unit }) {
-   const isZero = Math.abs(value) < 5;
-   return (
-      <div className={`p-2 rounded bg-slate-950 border border-slate-800 text-center ${!isZero ? 'border-slate-700' : ''}`}>
-         <div className="text-[10px] uppercase text-slate-500 font-bold tracking-wider">{label}</div>
-         <div className="text-lg font-mono font-medium text-slate-200">
-            {value.toFixed(1)}{unit}
-         </div>
       </div>
    );
 }
