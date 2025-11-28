@@ -57,14 +57,14 @@ class FaceDetector:
         try:
             results = self._model(image_array)
             
-            detected_data = [] # ‼️ Renamed variable to store tuples
+            detected_data = []
             if results and len(results[0].boxes.xyxy) > 0:
                 for bbox in results[0].boxes.xyxy:
                     cropped_face = self._crop_and_center_face(image_array, bbox)
                     
-                    # ‼️ Convert tensor bbox to a standard list of floats for easy JSON serialization later
+
                     bbox_list = [float(x) for x in bbox.tolist()] 
-                    detected_data.append((cropped_face, bbox_list)) # ‼️ Return both image and coordinates
+                    detected_data.append((cropped_face, bbox_list))
             
             return detected_data
         

@@ -1,19 +1,23 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles  # ‼️ Import StaticFiles
-from pathlib import Path  # ‼️ Import Path for robust directory handling
+from fastapi.responses import Response # ‼️ Import Response for serving images
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 import cv2
 import numpy as np
 import uvicorn
+import psycopg2
+from psycopg2 import Binary
 from facer.face_detector import FaceDetector
 from facer.face_direction import FaceDirection
 from facer.face_embedder import FaceEmbedder
 from facer.schemas import AnalysisResponse, FaceData, FacePose
 
+# TODO: Fix this for production
+DB_DSN = "postgresql://saltchicken:password@10.0.0.5:5432/facer_db"
+
 app = FastAPI(title="Facer Service", description="Face Analysis API and Static File Server")
 
-# ‼️ Update CORS: In release mode, frontend/backend are on the same origin (port 8000), 
-# so strictly speaking CORS isn't needed, but we keep it for flexibility.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,7 +26,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global instances (Lazy loaded on startup)
+# Global instances
 detector = None
 direction_finder = None
 embedder = None
@@ -33,7 +37,7 @@ PITCH_THRESHOLD = 25.0
 
 @app.on_event("startup")
 async def load_models():
-    """Load models once when server starts to save time per request."""
+    """Load models once when server starts."""
     global detector, direction_finder, embedder
     print("Loading models...")
     detector = FaceDetector()
@@ -43,49 +47,106 @@ async def load_models():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Clear global models on shutdown to prevent resource leaks."""
+    """Clear global models on shutdown."""
     global detector, direction_finder, embedder
-    print("Shutting down and cleaning up models...")
-    
-    # Clear references
+    print("Shutting down...")
     detector = None
     direction_finder = None
     embedder = None
-    
-    # Force garbage collection to release PyTorch/OpenCV locks
     import gc
     gc.collect()
-    print("Cleanup complete.")
 
-# ‼️ API Routes must be defined BEFORE the static mount to take precedence
+def save_to_db(filename: str, faces_with_images: list):
+    try:
+        conn = psycopg2.connect(DB_DSN)
+        with conn:
+            with conn.cursor() as cur:
+                for face_data, face_img_bytes in faces_with_images:
+                    embedding_val = str(face_data.embedding) if face_data.embedding else None
+                    cur.execute("""
+                        INSERT INTO faces (
+                            image_name, bbox, yaw, pitch, roll, embedding, is_valid_pose, face_image
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        filename, face_data.bbox, face_data.pose.yaw, face_data.pose.pitch, 
+                        face_data.pose.roll, embedding_val, face_data.is_valid_pose,
+                        Binary(face_img_bytes) if face_img_bytes else None
+                    ))
+        print(f"✅ Saved {len(faces_with_images)} faces to DB.")
+        conn.close()
+    except Exception as e:
+        print(f"❌ Database Error: {e}")
+
+# ‼️ NEW: Endpoint to get list of faces
+@app.get("/faces")
+def get_faces(limit: int = 100, offset: int = 0):
+    try:
+        conn = psycopg2.connect(DB_DSN)
+        with conn.cursor() as cur:
+            # Select metadata only (not the heavy image blob)
+            cur.execute("""
+                SELECT id, image_name, is_valid_pose, yaw, pitch, roll, created_at
+                FROM faces
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+            """, (limit, offset))
+            
+            rows = cur.fetchall()
+            faces = []
+            for row in rows:
+                faces.append({
+                    "id": row[0],
+                    "image_name": row[1],
+                    "is_valid_pose": row[2],
+                    "yaw": row[3],
+                    "pitch": row[4],
+                    "roll": row[5],
+                    "created_at": row[6]
+                })
+        conn.close()
+        return faces
+    except Exception as e:
+        print(f"DB Error: {e}")
+        return []
+
+# ‼️ NEW: Endpoint to serve the raw image bytes
+@app.get("/faces/{face_id}/image")
+def get_face_image(face_id: int):
+    try:
+        conn = psycopg2.connect(DB_DSN)
+        with conn.cursor() as cur:
+            cur.execute("SELECT face_image FROM faces WHERE id = %s", (face_id,))
+            row = cur.fetchone()
+            
+            if row and row[0]:
+                # Return bytes as an image response
+                return Response(content=row[0], media_type="image/jpeg")
+            else:
+                return Response(status_code=404)
+    except Exception as e:
+        print(f"DB Error: {e}")
+        return Response(status_code=500)
+
 @app.post("/analyze", response_model=AnalysisResponse)
 async def analyze_image(file: UploadFile = File(...)):
-    """
-    Receives an image, detects faces, checks pose, and generates embeddings.
-    Returns JSON structure ready for database insertion.
-    """
-    
-    # 1. Read Image File
+    # 1. Read Image
     try:
         contents = await file.read()
         nparr = np.frombuffer(contents, np.uint8)
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        if image is None:
-            raise ValueError("Could not decode image")
+        if image is None: raise ValueError("Could not decode")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid image file: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
 
-    # 2. Detect Faces
+    # 2. Detect
     detections = detector.detect_and_crop(image)
-    
     results = []
+    db_payload = []
 
     for i, (face_crop, bbox) in enumerate(detections):
-        
-        # 3. Analyze Direction
+        # 3. Direction
         direction_info = direction_finder.direction(face_crop)
-        
-        # Default values if direction fails
         yaw, pitch, roll = 0.0, 0.0, 0.0
         label = "unknown"
         
@@ -94,34 +155,37 @@ async def analyze_image(file: UploadFile = File(...)):
             pitch = direction_info.pitch
             label = str(direction_info)
 
-        # 4. Check Validity
+        # 4. Validity
         is_valid = (
             direction_info is not None 
             and abs(yaw) < YAW_THRESHOLD 
             and abs(pitch) < PITCH_THRESHOLD
         )
 
-        # 5. Generate Embedding (Only if valid)
+        # 5. Embedding
         embedding_vector = []
         if is_valid:
             emb_array = embedder.get_embedding(face_crop)
             if emb_array.size > 0:
                 embedding_vector = emb_array.tolist()
 
-        # 6. Build Result Object
+        # 6. Build Object
         face_data = FaceData(
             bbox=bbox,
-            pose=FacePose(
-                yaw=yaw, 
-                pitch=pitch, 
-                roll=roll, 
-                direction_label=label
-            ),
+            pose=FacePose(yaw=yaw, pitch=pitch, roll=roll, direction_label=label),
             is_valid_pose=is_valid,
             embedding=embedding_vector if embedding_vector else None
         )
         
+        success, buffer = cv2.imencode('.jpg', face_crop)
+        face_bytes = buffer.tobytes() if success else None
+
         results.append(face_data)
+        db_payload.append((face_data, face_bytes))
+
+    # 7. Save
+    if db_payload:
+        save_to_db(file.filename, db_payload)
 
     return AnalysisResponse(
         filename=file.filename,
@@ -129,18 +193,9 @@ async def analyze_image(file: UploadFile = File(...)):
         results=results
     )
 
-# ‼️ New Section: Serve Static Files (Frontend)
-# Calculate path to facer-ui/dist relative to this file
-# src/facer/server.py -> src/facer -> src -> root -> facer-ui -> dist
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "facer-ui" / "dist"
-
 if FRONTEND_DIR.exists():
-    # Mount the 'dist' folder to the root '/'
-    # html=True ensures index.html is served for the root path
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="static")
-else:
-    print(f"⚠️ WARNING: Frontend build not found at {FRONTEND_DIR}")
-    print("   Did you run 'npm run build' inside the facer-ui directory?")
 
 if __name__ == "__main__":
     uvicorn.run("facer.server:app", host="0.0.0.0", port=8000, reload=True)
