@@ -15,6 +15,7 @@ dependencies = [
   "python-multipart",
   "aiofiles",
   "psycopg2-binary",
+  "python-dotenv",
 ]
 
 [build-system]

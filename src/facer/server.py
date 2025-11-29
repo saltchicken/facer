@@ -9,14 +9,20 @@ import numpy as np
 import uvicorn
 import psycopg2
 import hashlib
+import os
+from dotenv import load_dotenv
 from psycopg2 import Binary
 from facer.face_detector import FaceDetector
 from facer.face_direction import FaceDirection
 from facer.face_embedder import FaceEmbedder
 from facer.schemas import AnalysisResponse, FaceData, FacePose
 
+load_dotenv()
+
 # TODO: Fix this for production
-DB_DSN = "postgresql://saltchicken:password@10.0.0.5:5432/facer_db"
+DB_URL = os.getenv("DB_URL")
+if not DB_URL:
+    raise ValueError("Missing DB_URL environment variable. Please set it in the .env file.")
 
 # Global instances
 detector = None
@@ -63,7 +69,7 @@ app.add_middleware(
 
 def check_image_exists(file_hash: str):
     try:
-        conn = psycopg2.connect(DB_DSN)
+        conn = psycopg2.connect(DB_URL)
         with conn.cursor() as cur:
             cur.execute("SELECT image_name FROM faces WHERE source_image_hash = %s LIMIT 1", (file_hash,))
             row = cur.fetchone()
@@ -77,7 +83,7 @@ def check_image_exists(file_hash: str):
 
 def save_to_db(filename: str, description: str, keywords: str, classification: str, faces_with_images: list, file_hash: str):
     try:
-        conn = psycopg2.connect(DB_DSN)
+        conn = psycopg2.connect(DB_URL)
         with conn:
             with conn.cursor() as cur:
                 for face_data, face_img_bytes in faces_with_images:
@@ -113,7 +119,7 @@ def save_to_db(filename: str, description: str, keywords: str, classification: s
 @app.get("/faces")
 def get_faces(limit: int = 100, offset: int = 0):
     try:
-        conn = psycopg2.connect(DB_DSN)
+        conn = psycopg2.connect(DB_URL)
         with conn.cursor() as cur:
 
             cur.execute("""
@@ -148,7 +154,7 @@ def get_faces(limit: int = 100, offset: int = 0):
 @app.get("/faces/{face_id}/image")
 def get_face_image(face_id: int):
     try:
-        conn = psycopg2.connect(DB_DSN)
+        conn = psycopg2.connect(DB_URL)
         with conn.cursor() as cur:
             cur.execute("SELECT face_image FROM faces WHERE id = %s", (face_id,))
             row = cur.fetchone()
