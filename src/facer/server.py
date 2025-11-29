@@ -22,7 +22,9 @@ load_dotenv()
 # TODO: Fix this for production
 DB_URL = os.getenv("DB_URL")
 if not DB_URL:
-    raise ValueError("Missing DB_URL environment variable. Please set it in the .env file.")
+    raise ValueError(
+        "Missing DB_URL environment variable. Please set it in the .env file."
+    )
 
 # Global instances
 detector = None
@@ -33,6 +35,7 @@ embedder = None
 YAW_THRESHOLD = 25.0
 PITCH_THRESHOLD = 25.0
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # --- Startup Logic ---
@@ -42,21 +45,23 @@ async def lifespan(app: FastAPI):
     direction_finder = FaceDirection()
     embedder = FaceEmbedder()
     print("Models loaded successfully.")
-    
-    yield # Server runs here
-    
+
+    yield  # Server runs here
+
     # --- Shutdown Logic ---
     print("Shutting down...")
     detector = None
     direction_finder = None
     embedder = None
     import gc
+
     gc.collect()
 
+
 app = FastAPI(
-    title="Facer Service", 
+    title="Facer Service",
     description="Face Analysis API and Static File Server",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -67,11 +72,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 def check_image_exists(file_hash: str):
     try:
         conn = psycopg2.connect(DB_URL)
         with conn.cursor() as cur:
-            cur.execute("SELECT image_name FROM faces WHERE source_image_hash = %s LIMIT 1", (file_hash,))
+            cur.execute(
+                "SELECT image_name FROM faces WHERE source_image_hash = %s LIMIT 1",
+                (file_hash,),
+            )
             row = cur.fetchone()
             existing_name = row[0] if row else None
         conn.close()
@@ -81,102 +90,127 @@ def check_image_exists(file_hash: str):
         return None
 
 
-# ‼️ Updated signature to accept original image data and dimensions instead of cropped images
-def save_to_db(filename: str, description: str, keywords: str, classification: str, faces_data: list, file_hash: str, original_image_bytes: bytes, width: int, height: int):
+
+def save_to_db(
+    filename: str,
+    description: str,
+    keywords: str,
+    classification: str,
+    faces_data: list,
+    file_hash: str,
+    original_image_bytes: bytes,
+    width: int,
+    height: int,
+):
     try:
         conn = psycopg2.connect(DB_URL)
         with conn:
             with conn.cursor() as cur:
-                # ‼️ Loop through face data (without individual cropped bytes)
+
                 for face_data in faces_data:
-                    embedding_val = str(face_data.embedding) if face_data.embedding else None
-                    
-                    # ‼️ Updated SQL to store original_image, width, and height. Removed face_image.
-                    cur.execute("""
+                    embedding_val = (
+                        str(face_data.embedding) if face_data.embedding else None
+                    )
+
+
+                    cur.execute(
+                        """
                         INSERT INTO faces (
                             image_name, description, keywords, classification, bbox, yaw, pitch, roll, 
                             embedding, is_valid_pose, direction, source_image_hash,
                             original_image, width, height
                         )
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (
-                        filename, 
-                        description,
-                        keywords,
-                        classification,
-                        face_data.bbox, 
-                        face_data.pose.yaw, 
-                        face_data.pose.pitch, 
-                        face_data.pose.roll, 
-                        embedding_val, 
-                        face_data.is_valid_pose,
-                        face_data.pose.direction_label,
-                        file_hash,
-                        Binary(original_image_bytes), # ‼️ Store full image
-                        width,                        # ‼️ Store width
-                        height                        # ‼️ Store height
-                    ))
+                    """,
+                        (
+                            filename,
+                            description,
+                            keywords,
+                            classification,
+                            face_data.bbox,
+                            face_data.pose.yaw,
+                            face_data.pose.pitch,
+                            face_data.pose.roll,
+                            embedding_val,
+                            face_data.is_valid_pose,
+                            face_data.pose.direction_label,
+                            file_hash,
+                            Binary(original_image_bytes),
+                            width,
+                            height,
+                        ),
+                    )
         print(f"✅ Saved {len(faces_data)} faces to DB.")
         conn.close()
     except Exception as e:
         print(f"❌ Database Error: {e}")
+
 
 @app.get("/faces")
 def get_faces(limit: int = 100, offset: int = 0):
     try:
         conn = psycopg2.connect(DB_URL)
         with conn.cursor() as cur:
-
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT id, image_name, is_valid_pose, yaw, pitch, roll, created_at, description, direction, keywords, classification
                 FROM faces
                 ORDER BY created_at DESC
                 LIMIT %s OFFSET %s
-            """, (limit, offset))
-            
+            """,
+                (limit, offset),
+            )
+
             rows = cur.fetchall()
             faces = []
             for row in rows:
-                faces.append({
-                    "id": row[0],
-                    "image_name": row[1],
-                    "is_valid_pose": row[2],
-                    "yaw": row[3],
-                    "pitch": row[4],
-                    "roll": row[5],
-                    "created_at": row[6],
-                    "description": row[7],
-                    "direction": row[8],
-                    "keywords": row[9],
-                    "classification": row[10]
-                })
+                faces.append(
+                    {
+                        "id": row[0],
+                        "image_name": row[1],
+                        "is_valid_pose": row[2],
+                        "yaw": row[3],
+                        "pitch": row[4],
+                        "roll": row[5],
+                        "created_at": row[6],
+                        "description": row[7],
+                        "direction": row[8],
+                        "keywords": row[9],
+                        "classification": row[10],
+                    }
+                )
         conn.close()
         return faces
     except Exception as e:
         print(f"DB Error: {e}")
         return []
 
+
 @app.get("/faces/{face_id}/image")
 def get_face_image(face_id: int):
     try:
         conn = psycopg2.connect(DB_URL)
         with conn.cursor() as cur:
-            # ‼️ Changed query to fetch original image and bbox instead of pre-cropped face_image
-            cur.execute("SELECT original_image, bbox FROM faces WHERE id = %s", (face_id,))
+
+            cur.execute(
+                "SELECT original_image, bbox FROM faces WHERE id = %s", (face_id,)
+            )
             row = cur.fetchone()
-            
+
             if row and row[0] and row[1]:
                 original_bytes = row[0]
-                bbox = row[1] # Expected [x1, y1, x2, y2]
-                
-                # ‼️ Decode original image
+                bbox = row[1]  # Expected [x1, y1, x2, y2]
+
+
                 nparr = np.frombuffer(original_bytes, np.uint8)
                 full_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                
-                if full_image is None:
-                    return Response(status_code=500, content="Failed to decode stored image")
 
-                # ‼️ Crop on the fly using the detector's logic (to maintain padding consistency)
+                if full_image is None:
+                    return Response(
+                        status_code=500, content="Failed to decode stored image"
+                    )
+
+
                 # We use the internal method _crop_and_center_face from the global detector instance
                 if detector:
                     face_crop = detector._crop_and_center_face(full_image, bbox)
@@ -186,7 +220,7 @@ def get_face_image(face_id: int):
                     face_crop = full_image[y1:y2, x1:x2]
 
                 # Encode to JPEG
-                success, buffer = cv2.imencode('.jpg', face_crop)
+                success, buffer = cv2.imencode(".jpg", face_crop)
                 if success:
                     return Response(content=buffer.tobytes(), media_type="image/jpeg")
                 else:
@@ -197,33 +231,35 @@ def get_face_image(face_id: int):
         print(f"DB Error: {e}")
         return Response(status_code=500)
 
+
 @app.post("/analyze", response_model=AnalysisResponse)
 async def analyze_image(
     file: UploadFile = File(...),
     description: str = Form(None),
     keywords: str = Form(None),
     classification: str = Form(None),
-    save: bool = Form(False)
+    save: bool = Form(False),
 ):
     # 1. Read Image
     try:
         contents = await file.read()
-        
+
         file_hash = hashlib.sha256(contents).hexdigest()
 
         if save:
             existing_name = check_image_exists(file_hash)
             if existing_name:
                 raise HTTPException(
-                    status_code=409, 
-                    detail=f"Duplicate Image: This image is already in the database as '{existing_name}'."
+                    status_code=409,
+                    detail=f"Duplicate Image: This image is already in the database as '{existing_name}'.",
                 )
 
         nparr = np.frombuffer(contents, np.uint8)
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        if image is None: raise ValueError("Could not decode")
-        
-        # ‼️ Get dimensions for DB storage
+        if image is None:
+            raise ValueError("Could not decode")
+
+
         height, width = image.shape[:2]
 
     except HTTPException as he:
@@ -234,15 +270,15 @@ async def analyze_image(
     # 2. Detect
     detections = detector.detect_and_crop(image)
     results = []
-    # ‼️ Removed db_payload (list of tuples) in favor of just collecting FaceData objects
-    faces_to_save = [] 
+
+    faces_to_save = []
 
     for i, (face_crop, bbox) in enumerate(detections):
         # 3. Direction
         direction_info = direction_finder.direction(face_crop)
         yaw, pitch, roll = 0.0, 0.0, 0.0
         label = "unknown"
-        
+
         if direction_info:
             yaw = direction_info.yaw
             pitch = direction_info.pitch
@@ -250,8 +286,8 @@ async def analyze_image(
 
         # 4. Validity
         is_valid = (
-            direction_info is not None 
-            and abs(yaw) < YAW_THRESHOLD 
+            direction_info is not None
+            and abs(yaw) < YAW_THRESHOLD
             and abs(pitch) < PITCH_THRESHOLD
         )
 
@@ -267,32 +303,31 @@ async def analyze_image(
             bbox=bbox,
             pose=FacePose(yaw=yaw, pitch=pitch, roll=roll, direction_label=label),
             is_valid_pose=is_valid,
-            embedding=embedding_vector if embedding_vector else None
+            embedding=embedding_vector if embedding_vector else None,
         )
-        
+
         results.append(face_data)
-        faces_to_save.append(face_data) # ‼️ Just append the data object
+        faces_to_save.append(face_data)
 
     # 7. Save (Only if requested)
     if save and faces_to_save:
-        # ‼️ Pass original image bytes and dimensions instead of cropped images
+
         save_to_db(
-            file.filename, 
-            description, 
-            keywords, 
-            classification, 
-            faces_to_save, 
-            file_hash, 
-            contents, 
-            width, 
-            height
+            file.filename,
+            description,
+            keywords,
+            classification,
+            faces_to_save,
+            file_hash,
+            contents,
+            width,
+            height,
         )
 
     return AnalysisResponse(
-        filename=file.filename,
-        face_count=len(results),
-        results=results
+        filename=file.filename, face_count=len(results), results=results
     )
+
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "facer-ui" / "dist"
 if FRONTEND_DIR.exists():

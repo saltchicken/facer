@@ -1,10 +1,10 @@
 import React, { useState, useRef } from 'react';
-// ‼️ Added LayoutGrid to imports
+
 import { Upload, Camera, Save, AlertCircle, CheckCircle, Loader2, LayoutGrid } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import type { AnalysisResponse  } from './types';
-// ‼️ Import the new Gallery component
+
 import Gallery from './Gallery'; 
 
 // Utility for cleaner tailwind classes
@@ -13,7 +13,7 @@ function cn(...inputs: ClassValue[]) {
 }
 
 function App() {
-  // ‼️ NEW: View State Management
+
   const [currentView, setCurrentView] = useState<'analyze' | 'gallery'>('analyze');
 
   // State
@@ -124,7 +124,7 @@ function App() {
             <h1 className="text-2xl font-bold tracking-tight">Facer<span className="text-indigo-400">UI</span></h1>
           </div>
 
-          {/* ‼️ NEW: Navigation Toggle */}
+
           <nav className="flex bg-slate-900 p-1 rounded-lg border border-slate-800">
             <button
               onClick={() => setCurrentView('analyze')}
@@ -153,7 +153,7 @@ function App() {
           </nav>
         </header>
 
-        {/* ‼️ NEW: Conditional Rendering for View Switching */}
+
         {currentView === 'gallery' ? (
           <Gallery />
         ) : (
