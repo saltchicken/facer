@@ -17,3 +17,17 @@ export interface AnalysisResponse {
   face_count: number;
   results: FaceData[];
 }
+
+export interface FaceRecord {
+  id: number;
+  image_name: string;
+  is_valid_pose: boolean;
+  yaw: number;
+  pitch: number;
+  roll: number;
+  created_at: string;
+  description: string | null;
+  direction: string;
+  keywords: string | null;
+  classification: string | null;
+}
