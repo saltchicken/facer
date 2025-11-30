@@ -97,7 +97,7 @@ export default function Gallery() {
   const [faces, setFaces] = useState<FaceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
-  const [hasNextPage, setHasNextPage] = useState(false); // ‼️ Added state to accurately track if next page exists
+  const [hasNextPage, setHasNextPage] = useState(false);
 
 
   const [selectedImage, setSelectedImage] = useState<FaceRecord | null>(null);
@@ -151,7 +151,7 @@ export default function Gallery() {
 
 
       const params = new URLSearchParams();
-      // ‼️ Fetch one extra item (limit + 1) to "peek" if there is a next page
+
       params.append('limit', (ITEMS_PER_PAGE + 1).toString());
       params.append('offset', offset.toString());
 
@@ -162,10 +162,10 @@ export default function Gallery() {
       const res = await fetch(`/faces?${params.toString()}`);
       const data = await res.json();
 
-      // ‼️ If we got more items than ITEMS_PER_PAGE, we know a next page exists
+
       if (data.length > ITEMS_PER_PAGE) {
         setHasNextPage(true);
-        // ‼️ Remove the extra "peek" item from the display list
+
         setFaces(data.slice(0, ITEMS_PER_PAGE));
       } else {
         setHasNextPage(false);
@@ -469,7 +469,7 @@ export default function Gallery() {
 
         <button
           onClick={() => setPage((p) => p + 1)}
-          disabled={!hasNextPage} // ‼️ Updated disabled condition to use our new flag
+          disabled={!hasNextPage}
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all text-slate-400"
         >
           Next
