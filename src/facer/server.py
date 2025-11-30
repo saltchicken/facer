@@ -468,7 +468,9 @@ def get_face_image(face_id: int):
             )
             row = cur.fetchone()
 
-            if row and row[0] and row[1]:
+
+            # This allows images with empty bbox (no faces) to be processed.
+            if row and row[0]:
                 original_bytes = row[0]
                 bbox = row[1]  # Expected [x1, y1, x2, y2]
 
@@ -481,7 +483,11 @@ def get_face_image(face_id: int):
                     )
 
                 # We use the internal method _crop_and_center_face from the global detector instance
-                if detector:
+                # If bbox is empty (from a no-face save), return full image or handle gracefully
+
+                if not bbox:
+                    face_crop = full_image
+                elif detector:
                     face_crop = detector._crop_and_center_face(full_image, bbox)
                 else:
                     # Fallback if detector isn't loaded (unlikely) -> Simple crop
@@ -539,16 +545,12 @@ def process_analysis_sync(
     # 2. Detect
     detections = detector.detect_and_crop(image)
 
-    if len(detections) > 1:
-        if save_flag:
-            print(
-                f"⚠️  Multiple faces detected ({len(detections)}). Saving disabled for '{filename}'."
-            )
-        save_flag = False
+
+    # Logic is now handled below to save a fallback record instead.
 
     results = []
-    faces_to_save = []
 
+    # Process detections as normal for API response
     for i, (face_crop, bbox) in enumerate(detections):
         # 3. Direction
         direction_info = direction_finder.direction(face_crop)
@@ -583,21 +585,44 @@ def process_analysis_sync(
         )
 
         results.append(face_data)
-        faces_to_save.append(face_data)
 
     # 7. Save (Only if requested)
-    if save_flag and faces_to_save:
-        save_to_db(
-            filename,
-            desc,
-            keys,
-            classif,
-            faces_to_save,
-            file_hash,
-            contents,
-            width,
-            height,
-        )
+    if save_flag:
+        faces_to_save = []
+
+
+        if len(results) == 1:
+            faces_to_save = results
+        else:
+
+            # Contains no embedding, empty bbox, null pose, invalid status.
+
+            class FallbackPose:
+                yaw = None
+                pitch = None
+                roll = None
+                direction_label = None
+
+            class FallbackData:
+                bbox = []  # Empty array for Postgres
+                pose = FallbackPose()
+                is_valid_pose = False
+                embedding = None
+
+            faces_to_save = [FallbackData()]
+
+        if faces_to_save:
+            save_to_db(
+                filename,
+                desc,
+                keys,
+                classif,
+                faces_to_save,
+                file_hash,
+                contents,
+                width,
+                height,
+            )
 
     return results
 
