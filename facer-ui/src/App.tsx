@@ -23,7 +23,7 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [imgDim, setImgDim] = useState<{ w: number; h: number } | null>(null);
-  const [isDragging, setIsDragging] = useState(false); // ‼️ New drag state
+  const [isDragging, setIsDragging] = useState(false);
 
   // Form Data State
   const [description, setDescription] = useState('');

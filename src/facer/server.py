@@ -18,7 +18,12 @@ from psycopg2 import Binary
 from facer.face_detector import FaceDetector
 from facer.face_direction import FaceDirection
 from facer.face_embedder import FaceEmbedder
-from facer.schemas import AnalysisResponse, FaceData, FacePose
+from facer.schemas import (
+    AnalysisResponse,
+    FaceData,
+    FacePose,
+    FaceUpdate,
+)
 
 load_dotenv()
 
@@ -145,6 +150,59 @@ def save_to_db(
         conn.close()
     except Exception as e:
         print(f"❌ Database Error: {e}")
+
+
+
+@app.patch("/faces/{face_id}")
+def update_face_record(face_id: int, update: FaceUpdate):
+    if not DB_URL:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    try:
+        conn = psycopg2.connect(DB_URL)
+        with conn:
+            with conn.cursor() as cur:
+                # Build dynamic query based on what fields were sent
+                fields = []
+                values = []
+
+                if update.description is not None:
+                    fields.append("description = %s")
+                    values.append(update.description)
+
+                if update.classification is not None:
+                    fields.append("classification = %s")
+                    values.append(update.classification)
+
+                if update.keywords is not None:
+                    fields.append("keywords = %s")
+                    values.append(update.keywords)
+
+                if not fields:
+                    return {"message": "No fields to update"}
+
+                # Add ID for WHERE clause
+                values.append(face_id)
+
+                query = f"UPDATE faces SET {', '.join(fields)} WHERE id = %s"
+
+                cur.execute(query, tuple(values))
+
+                if cur.rowcount == 0:
+                    raise HTTPException(status_code=404, detail="Face record not found")
+
+        conn.close()
+        return {
+            "status": "success",
+            "id": face_id,
+            "updated": update.dict(exclude_unset=True),
+        }
+
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"Update Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/faces")
