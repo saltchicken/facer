@@ -255,7 +255,6 @@ def get_faces(
             params = []
 
             if classification:
-
                 if classification == "__NONE__":
                     conditions.append("(classification IS NULL OR classification = '')")
                 else:
@@ -263,7 +262,6 @@ def get_faces(
                     params.append(classification)
 
             if keyword:
-
                 if keyword == "__NONE__":
                     conditions.append("(keywords IS NULL OR keywords = '')")
                 else:
@@ -338,6 +336,39 @@ def get_face_image(face_id: int):
 
                 # Encode to JPEG
                 success, buffer = cv2.imencode(".jpg", face_crop)
+                if success:
+                    return Response(content=buffer.tobytes(), media_type="image/jpeg")
+                else:
+                    return Response(status_code=500)
+            else:
+                return Response(status_code=404)
+    except Exception as e:
+        print(f"DB Error: {e}")
+        return Response(status_code=500)
+
+
+
+@app.get("/faces/{face_id}/full_image")
+def get_face_full_image(face_id: int):
+    if not DB_URL:
+        return Response(status_code=500, content="DB not connected")
+    try:
+        conn = psycopg2.connect(DB_URL)
+        with conn.cursor() as cur:
+            cur.execute("SELECT original_image FROM faces WHERE id = %s", (face_id,))
+            row = cur.fetchone()
+
+            if row and row[0]:
+                original_bytes = row[0]
+                # Decode to ensure validity and allow re-encoding to standard JPEG
+                nparr = np.frombuffer(original_bytes, np.uint8)
+                full_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+                if full_image is None:
+                    return Response(status_code=500, content="Failed to decode")
+
+                # Encode to JPEG to ensure consistent content type
+                success, buffer = cv2.imencode(".jpg", full_image)
                 if success:
                     return Response(content=buffer.tobytes(), media_type="image/jpeg")
                 else:

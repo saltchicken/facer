@@ -13,6 +13,8 @@ export default function Gallery() {
   const [page, setPage] = useState(0);
 
 
+  const [selectedImage, setSelectedImage] = useState<FaceRecord | null>(null);
+
   const [filters, setFilters] = useState({
     keyword: '',
     classification: ''
@@ -217,10 +219,12 @@ export default function Gallery() {
               <img
                 src={`/faces/${face.id}/image`}
                 alt={face.image_name}
-                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+
+                onClick={() => setSelectedImage(face)}
+                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 cursor-pointer"
                 loading="lazy"
               />
-              <div className="absolute top-2 right-2">
+              <div className="absolute top-2 right-2 pointer-events-none">
                 <span className={`px-2 py-1 rounded text-xs font-bold border ${face.is_valid_pose
                   ? 'bg-green-500/20 text-green-400 border-green-500/30'
                   : 'bg-red-500/20 text-red-400 border-red-500/30'
@@ -330,6 +334,41 @@ export default function Gallery() {
           <ChevronRight className="w-4 h-4" />
         </button>
       </div>
+
+
+      {selectedImage && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setSelectedImage(null)}
+        >
+          <div
+            className="relative max-w-7xl w-full max-h-[95vh] flex flex-col items-center"
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setSelectedImage(null)}
+              className="absolute -top-12 right-0 p-2 text-slate-400 hover:text-white transition-colors"
+            >
+              <X size={32} />
+            </button>
+
+            <img
+              src={`/faces/${selectedImage.id}/full_image`}
+              alt={selectedImage.image_name}
+              className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl bg-slate-900"
+            />
+
+            <div className="mt-4 bg-slate-900/90 px-6 py-3 rounded-full border border-slate-700 shadow-xl backdrop-blur text-slate-200 flex gap-4 items-center">
+              <span className="font-medium">{selectedImage.description || selectedImage.image_name}</span>
+              {selectedImage.classification && (
+                <span className="text-xs bg-indigo-500/20 text-indigo-300 px-2 py-1 rounded border border-indigo-500/30">
+                  {selectedImage.classification}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
