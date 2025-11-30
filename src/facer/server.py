@@ -255,7 +255,7 @@ def get_faces(
             params = []
 
             if classification:
-                # ‼️ Handle special "Unclassified" filter
+
                 if classification == "__NONE__":
                     conditions.append("(classification IS NULL OR classification = '')")
                 else:
@@ -263,7 +263,7 @@ def get_faces(
                     params.append(classification)
 
             if keyword:
-                # ‼️ Handle special "No Keywords" filter
+
                 if keyword == "__NONE__":
                     conditions.append("(keywords IS NULL OR keywords = '')")
                 else:
