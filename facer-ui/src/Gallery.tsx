@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   Loader2, Tag, User, Edit2, Check, X,
   ChevronLeft, ChevronRight, RefreshCw, ChevronDown, Download,
-  Trash2 // ‼️ Added Trash2 Icon
+  Trash2
 } from 'lucide-react';
 import type { FaceRecord } from './types';
 
@@ -211,7 +211,7 @@ export default function Gallery() {
     }
   };
 
-  // ‼️ Added delete function
+
   const deleteFace = async (id: number) => {
     if (!window.confirm("Are you sure you want to delete this image? This action cannot be undone.")) return;
 
@@ -381,7 +381,7 @@ export default function Gallery() {
                   </div>
                   <div className="flex gap-2 justify-between mt-2 pt-2 border-t border-slate-800">
 
-                    {/* ‼️ Added Delete Button inside Edit Mode */}
+
                     <button
                       onClick={() => deleteFace(face.id)}
                       className="p-1.5 bg-red-900/30 text-red-400 rounded hover:bg-red-900/50 transition-colors"

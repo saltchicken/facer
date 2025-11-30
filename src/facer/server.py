@@ -207,7 +207,7 @@ def update_face_record(face_id: int, update: FaceUpdate):
 
 
 @app.delete("/faces/{face_id}")
-def delete_face(face_id: int):  # ‼️ Added DELETE endpoint
+def delete_face(face_id: int):
     if not DB_URL:
         raise HTTPException(status_code=503, detail="Database not configured")
 
