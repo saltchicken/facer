@@ -103,7 +103,7 @@ function App() {
           style={style}
         >
           {/* Tooltip on Hover */}
-          {/* ‼️ CHANGED: Added z-index and fixed positioning context for tooltip */}
+
           <div className="opacity-0 group-hover/box:opacity-100 absolute -top-8 left-0 bg-black/80 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-50 pointer-events-none transition-opacity">
              Face #{idx + 1}: {face.pose.direction_label}
           </div>
@@ -162,7 +162,7 @@ function App() {
             
             {/* Left Column: Image Preview */}
             <div className="lg:col-span-2 space-y-4">
-              {/* ‼️ CHANGED: Replaced the flex container with a layout that supports accurate absolute positioning overlays.
+
                   The previous use of object-contain inside a flex container caused the bounding boxes (positioned by %) 
                   to misalign because the coordinate system of the div didn't match the rendered image size.
               */}

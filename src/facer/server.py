@@ -4,7 +4,7 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.concurrency import (
     run_in_threadpool,
-)  # ‼️ ADDED: Necessary for offloading CPU-bound tasks in async routes
+)
 from pathlib import Path
 from contextlib import asynccontextmanager
 import cv2
@@ -22,10 +22,8 @@ from facer.schemas import AnalysisResponse, FaceData, FacePose
 
 load_dotenv()
 
-# TODO: Fix this for production
 DB_URL = os.getenv("DB_URL")
 if not DB_URL:
-    # ‼️ CHANGED: Better error message for debugging
     print("WARNING: DB_URL is not set. Database features will fail.")
 
 # Global instances
@@ -77,7 +75,7 @@ app.add_middleware(
 
 def check_image_exists(file_hash: str):
     if not DB_URL:
-        return None  # ‼️ ADDED: Safety check
+        return None
     try:
         conn = psycopg2.connect(DB_URL)
         with conn.cursor() as cur:
@@ -106,7 +104,7 @@ def save_to_db(
     height: int,
 ):
     if not DB_URL:
-        return  # ‼️ ADDED: Safety check
+        return
     try:
         conn = psycopg2.connect(DB_URL)
         with conn:
@@ -152,7 +150,7 @@ def save_to_db(
 @app.get("/faces")
 def get_faces(limit: int = 100, offset: int = 0):
     if not DB_URL:
-        return []  # ‼️ ADDED: Safety check
+        return []
     try:
         conn = psycopg2.connect(DB_URL)
         with conn.cursor() as cur:
@@ -236,7 +234,7 @@ def get_face_image(face_id: int):
         return Response(status_code=500)
 
 
-# ‼️ ADDED: Helper function to run CPU-bound inference logic
+
 def process_analysis_sync(
     image, save_flag, filename, desc, keys, classif, file_hash, contents, width, height
 ):
@@ -313,7 +311,7 @@ async def analyze_image(
         file_hash = hashlib.sha256(contents).hexdigest()
 
         if save:
-            # ‼️ NOTE: check_image_exists is quick DB IO, usually fine in async def,
+
             # but optimally could be awaited if converted to async.
             # For now, it's fast enough to leave or wrap.
             existing_name = check_image_exists(file_hash)
@@ -325,7 +323,7 @@ async def analyze_image(
 
         nparr = np.frombuffer(contents, np.uint8)
 
-        # ‼️ CHANGED: Image decoding can be CPU intensive for large files, technically better in threadpool,
+
         # but usually negligible compared to ML models.
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
@@ -339,7 +337,7 @@ async def analyze_image(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # ‼️ CHANGED: Offload the entire heavy inference pipeline to a threadpool.
+
     # This prevents the async event loop from blocking while YOLO/MediaPipe run.
     results = await run_in_threadpool(
         process_analysis_sync,
