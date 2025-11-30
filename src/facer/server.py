@@ -240,7 +240,7 @@ def process_analysis_sync(
     # 2. Detect
     detections = detector.detect_and_crop(image)
 
-    # ‼️ Change: Prevent saving if multiple faces are detected in the image
+
     if len(detections) > 1:
         if save_flag:
             print(
@@ -369,4 +369,3 @@ if FRONTEND_DIR.exists():
 
 if __name__ == "__main__":
     uvicorn.run("facer.server:app", host="0.0.0.0", port=8000, reload=True)
-
