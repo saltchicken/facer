@@ -28,6 +28,10 @@ class FaceData(BaseModel):
     embedding: Optional[List[float]] = Field(
         None, description="1x512 (or similar) vector for face recognition"
     )
+    # ‼️ Added classification field to carry auto-detected names
+    classification: Optional[str] = Field(
+        None, description="Auto-detected classification from database match"
+    )
 
     class Config:
         json_schema_extra = {
@@ -41,6 +45,7 @@ class FaceData(BaseModel):
                 },
                 "is_valid_pose": True,
                 "embedding": [0.1238, -0.5432, "...", 0.9982],
+                "classification": "John Doe",
             }
         }
 
@@ -56,3 +61,4 @@ class AnalysisResponse(BaseModel):
     face_count: int
     results: List[FaceData]
     error: Optional[str] = None
+

@@ -15,6 +15,7 @@ import hashlib
 import os
 import zipfile
 import io
+import ast  # ‼️ Added for parsing stored embeddings
 from typing import List
 from dotenv import load_dotenv
 from psycopg2 import Binary
@@ -42,6 +43,8 @@ embedder = None
 # Configuration Thresholds
 YAW_THRESHOLD = 25.0
 PITCH_THRESHOLD = 25.0
+# ‼️ Added threshold for identification
+MATCH_THRESHOLD = 0.4
 
 
 @asynccontextmanager
@@ -100,6 +103,85 @@ def check_image_exists(file_hash: str):
         return None
 
 
+# ‼️ Added function to identify face against DB records
+def identify_face_from_db(target_embedding: list) -> str:
+    """
+    Fetches all classified faces from DB, calculates cosine similarity,
+    and returns the classification if similarity > MATCH_THRESHOLD.
+    """
+    if not DB_URL or not target_embedding:
+        return None
+
+    try:
+        conn = psycopg2.connect(DB_URL)
+        target_arr = np.array(target_embedding)
+        best_match_name = None
+        highest_similarity = MATCH_THRESHOLD
+
+        # ‼️ Log start of identification process
+        print(f"‼️ [ID] Starting identification (Threshold: {MATCH_THRESHOLD})...")
+
+        with conn.cursor() as cur:
+            # Fetch only records that have a classification and an embedding
+            # ‼️ Updated query to fetch image_name for better logging
+            cur.execute(
+                "SELECT classification, embedding, image_name FROM faces WHERE classification IS NOT NULL AND classification != '' AND embedding IS NOT NULL"
+            )
+            rows = cur.fetchall()
+
+            # ‼️ Log candidate count
+            print(f"‼️ [ID] Found {len(rows)} candidates in database.")
+
+            for classification, embedding_str, image_name in rows:
+                try:
+                    # Convert string representation back to list/array
+                    # The DB stores it as a stringified list via str(list)
+                    # ast.literal_eval is safer than eval()
+                    db_emb_list = ast.literal_eval(embedding_str)
+                    db_emb_arr = np.array(db_emb_list)
+
+                    # Cosine Similarity Calculation
+                    dot_product = np.dot(target_arr, db_emb_arr)
+                    norm_a = np.linalg.norm(target_arr)
+                    norm_b = np.linalg.norm(db_emb_arr)
+
+                    if norm_a == 0 or norm_b == 0:
+                        continue
+
+                    similarity = dot_product / (norm_a * norm_b)
+
+                    # print(
+                    #     f"‼️ [ID] Comparing vs '{classification}' (Img: {image_name}): Score = {similarity:.4f}"
+                    # )
+
+                    if similarity > highest_similarity:
+                        # ‼️ Log new best match
+                        print(
+                            f"‼️ [ID] -> New Best Match! '{classification}' ({similarity:.4f} > {highest_similarity:.4f})"
+                        )
+                        highest_similarity = similarity
+                        best_match_name = classification
+
+                except Exception as parse_err:
+                    print(
+                        f"‼️ [ID] Error parsing embedding for {classification}: {parse_err}"
+                    )
+                    continue  # Skip malformed embeddings
+
+        conn.close()
+
+        # ‼️ Log final result
+        if best_match_name:
+            print(f"‼️ [ID] FINAL RESULT: Identified as '{best_match_name}'")
+        else:
+            print("‼️ [ID] FINAL RESULT: Unknown")
+
+        return best_match_name
+    except Exception as e:
+        print(f"Identification Error: {e}")
+        return None
+
+
 def save_to_db(
     filename: str,
     description: str,
@@ -122,6 +204,11 @@ def save_to_db(
                         str(face_data.embedding) if face_data.embedding else None
                     )
 
+                    # ‼️ Use auto-detected classification if global classification is empty
+                    final_classification = classification
+                    if not final_classification and face_data.classification:
+                        final_classification = face_data.classification
+
                     cur.execute(
                         """
                         INSERT INTO faces (
@@ -135,7 +222,7 @@ def save_to_db(
                             filename,
                             description,
                             keywords,
-                            classification,
+                            final_classification,  # ‼️ Uses the determined class
                             face_data.bbox,
                             face_data.pose.yaw,
                             face_data.pose.pitch,
@@ -572,10 +659,20 @@ def process_analysis_sync(
 
         # 5. Embedding
         embedding_vector = []
+        identified_classification = None  # ‼️ Variable to hold match result
+
         if is_valid:
             emb_array = embedder.get_embedding(face_crop)
             if emb_array.size > 0:
                 embedding_vector = emb_array.tolist()
+
+                # ‼️ If user didn't specify classification, try to identify from DB
+                if not classif:
+                    identified_classification = identify_face_from_db(embedding_vector)
+                    if identified_classification:
+                        print(
+                            f"Match found for {filename}: {identified_classification}"
+                        )
 
         # 6. Build Object
         face_data = FaceData(
@@ -583,6 +680,7 @@ def process_analysis_sync(
             pose=FacePose(yaw=yaw, pitch=pitch, roll=roll, direction_label=label),
             is_valid_pose=is_valid,
             embedding=embedding_vector if embedding_vector else None,
+            classification=identified_classification,  # ‼️ Pass the found name
         )
 
         results.append(face_data)
@@ -591,9 +689,7 @@ def process_analysis_sync(
     if save_flag:
         faces_to_save = []
 
-        if (
-            len(results) >= 1
-        ):
+        if len(results) >= 1:
             faces_to_save = results
         else:
             # Contains no embedding, empty bbox, null pose, invalid status.
@@ -609,6 +705,7 @@ def process_analysis_sync(
                 pose = FallbackPose()
                 is_valid_pose = False
                 embedding = None
+                classification = None  # ‼️ Added for fallback compatibility
 
             faces_to_save = [FallbackData()]
 
@@ -650,7 +747,6 @@ async def analyze_image(
                 # Check duplicate per file
                 existing_name = check_image_exists(file_hash)
                 if existing_name:
-
                     error_msg = f"Duplicate: Already exists as '{existing_name}'."
 
             if error_msg:
@@ -702,7 +798,6 @@ async def analyze_image(
             )
 
         except Exception as e:
-
             print(f"Error processing {file.filename}: {e}")
             all_responses.append(
                 AnalysisResponse(
