@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Loader2, Tag, User, Edit2, Check, X,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Filter, RefreshCw
 } from 'lucide-react';
 import type { FaceRecord } from './types';
 
@@ -12,6 +12,18 @@ export default function Gallery() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
 
+
+  const [filters, setFilters] = useState({
+    keyword: '',
+    classification: ''
+  });
+
+
+  const [filterOptions, setFilterOptions] = useState<{
+    keywords: string[];
+    classifications: string[];
+  }>({ keywords: [], classifications: [] });
+
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<{
     description: string;
@@ -19,16 +31,43 @@ export default function Gallery() {
     keywords: string;
   }>({ description: '', classification: '', keywords: '' });
 
+
+  useEffect(() => {
+    fetchFilterOptions();
+  }, []);
+
+
   useEffect(() => {
     fetchFaces();
-  }, [page]);
+  }, [page, filters]);
+
+
+  const fetchFilterOptions = async () => {
+    try {
+      const res = await fetch('/filters');
+      if (res.ok) {
+        const data = await res.json();
+        setFilterOptions(data);
+      }
+    } catch (err) {
+      console.error("Failed to load filter options", err);
+    }
+  };
 
   const fetchFaces = async () => {
     setLoading(true);
     try {
-
       const offset = page * ITEMS_PER_PAGE;
-      const res = await fetch(`/faces?limit=${ITEMS_PER_PAGE}&offset=${offset}`);
+
+
+      const params = new URLSearchParams();
+      params.append('limit', ITEMS_PER_PAGE.toString());
+      params.append('offset', offset.toString());
+
+      if (filters.keyword) params.append('keyword', filters.keyword);
+      if (filters.classification) params.append('classification', filters.classification);
+
+      const res = await fetch(`/faces?${params.toString()}`);
       const data = await res.json();
       setFaces(data);
     } catch (err) {
@@ -37,7 +76,6 @@ export default function Gallery() {
       setLoading(false);
     }
   };
-
 
   const startEditing = (face: FaceRecord) => {
     setEditingId(face.id);
@@ -52,7 +90,6 @@ export default function Gallery() {
     setEditingId(null);
   };
 
-
   const saveEdit = async (id: number) => {
     try {
       const res = await fetch(`/faces/${id}`, {
@@ -62,9 +99,10 @@ export default function Gallery() {
       });
 
       if (res.ok) {
-        // Optimistic update of local state
         setFaces(faces.map(f => f.id === id ? { ...f, ...editForm } : f));
         setEditingId(null);
+        // Refresh filter options just in case new tags were added
+        fetchFilterOptions();
       } else {
         console.error("Failed to save changes");
       }
@@ -73,7 +111,19 @@ export default function Gallery() {
     }
   };
 
-  if (loading) {
+
+  const handleFilterChange = (key: 'keyword' | 'classification', value: string) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+    setPage(0); // Reset to first page on filter change
+  };
+
+
+  const clearFilters = () => {
+    setFilters({ keyword: '', classification: '' });
+    setPage(0);
+  };
+
+  if (loading && faces.length === 0) {
     return (
       <div className="flex items-center justify-center h-64 text-indigo-400">
         <Loader2 className="w-8 h-8 animate-spin" />
@@ -83,15 +133,76 @@ export default function Gallery() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-12">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-slate-200">Database Records</h2>
 
-        <span className="text-slate-500 text-sm">
-          Showing {faces.length} items (Page {page + 1})
-        </span>
+
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/50 p-4 rounded-xl border border-slate-800">
+        <div>
+          <h2 className="text-xl font-semibold text-slate-200">Database Records</h2>
+          <span className="text-slate-500 text-sm">
+            Showing {faces.length} items (Page {page + 1})
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 bg-slate-950 px-3 py-2 rounded-lg border border-slate-800">
+            <Filter className="w-4 h-4 text-indigo-400" />
+
+            {/* Classification Filter */}
+            <select
+              value={filters.classification}
+              onChange={(e) => handleFilterChange('classification', e.target.value)}
+              className="bg-transparent text-sm text-slate-300 focus:outline-none w-32"
+            >
+              <option value="">All Classes</option>
+              {filterOptions.classifications.map((c, i) => (
+                <option key={i} value={c}>{c}</option>
+              ))}
+            </select>
+
+            <div className="w-px h-4 bg-slate-800 mx-2"></div>
+
+            {/* Keyword Filter */}
+            <Tag className="w-4 h-4 text-indigo-400" />
+            <select
+              value={filters.keyword}
+              onChange={(e) => handleFilterChange('keyword', e.target.value)}
+              className="bg-transparent text-sm text-slate-300 focus:outline-none w-32"
+            >
+              <option value="">All Keywords</option>
+              {filterOptions.keywords.map((k, i) => (
+                <option key={i} value={k}>{k}</option>
+              ))}
+            </select>
+          </div>
+
+          {(filters.classification || filters.keyword) && (
+            <button
+              onClick={clearFilters}
+              className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+              title="Clear Filters"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
+
+          <button
+            onClick={() => { fetchFaces(); fetchFilterOptions(); }}
+            className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        {faces.length === 0 && !loading && (
+          <div className="col-span-full py-12 text-center text-slate-500 bg-slate-900/50 rounded-xl border border-dashed border-slate-800">
+            <p>No records found matching your filters.</p>
+            <button onClick={clearFilters} className="mt-2 text-indigo-400 hover:underline">Clear Filters</button>
+          </div>
+        )}
+
         {faces.map((face) => (
           <div
             key={face.id}
@@ -118,7 +229,7 @@ export default function Gallery() {
             {/* Details */}
             <div className="p-4 space-y-3">
               {editingId === face.id ? (
-
+                // Edit Mode
                 <div className="space-y-2 animate-in fade-in">
                   <input
                     value={editForm.description}
@@ -159,7 +270,7 @@ export default function Gallery() {
                   </div>
                 </div>
               ) : (
-
+                // Display Mode
                 <>
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="font-medium text-slate-200 truncate" title={face.description || face.image_name}>
@@ -180,13 +291,10 @@ export default function Gallery() {
                       <span className="truncate">{face.classification || 'Unclassified'}</span>
                     </div>
 
-
                     <div className="flex items-center gap-2">
                       <Tag className="w-3 h-3" />
                       <span className="truncate">{face.keywords || 'No keywords'}</span>
                     </div>
-
-
                   </div>
                 </>
               )}
@@ -194,7 +302,6 @@ export default function Gallery() {
           </div>
         ))}
       </div>
-
 
       <div className="flex items-center justify-center gap-4 mt-8 pt-4 border-t border-slate-800">
         <button

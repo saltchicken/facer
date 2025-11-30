@@ -152,7 +152,6 @@ def save_to_db(
         print(f"❌ Database Error: {e}")
 
 
-
 @app.patch("/faces/{face_id}")
 def update_face_record(face_id: int, update: FaceUpdate):
     if not DB_URL:
@@ -205,22 +204,75 @@ def update_face_record(face_id: int, update: FaceUpdate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
+@app.get("/filters")
+def get_filters():
+    if not DB_URL:
+        return {"classifications": [], "keywords": []}
+    try:
+        conn = psycopg2.connect(DB_URL)
+        with conn.cursor() as cur:
+            # 1. Get distinct classifications
+            cur.execute(
+                "SELECT DISTINCT classification FROM faces WHERE classification IS NOT NULL AND classification != ''"
+            )
+            class_rows = cur.fetchall()
+            classifications = sorted([r[0] for r in class_rows])
+
+            # 2. Get all keywords to parse distinct ones (assuming CSV storage)
+            cur.execute("SELECT keywords FROM faces WHERE keywords IS NOT NULL")
+            keyword_rows = cur.fetchall()
+
+            unique_keywords = set()
+            for row in keyword_rows:
+                # row[0] is like "front, daylight"
+                if row[0]:
+                    parts = [p.strip() for p in row[0].split(",")]
+                    unique_keywords.update(p for p in parts if p)
+
+            keywords = sorted(list(unique_keywords))
+
+        conn.close()
+        return {"classifications": classifications, "keywords": keywords}
+    except Exception as e:
+        print(f"Filter Fetch Error: {e}")
+        return {"classifications": [], "keywords": []}
+
+
+
 @app.get("/faces")
-def get_faces(limit: int = 100, offset: int = 0):
+def get_faces(
+    limit: int = 100, offset: int = 0, keyword: str = None, classification: str = None
+):
     if not DB_URL:
         return []
     try:
         conn = psycopg2.connect(DB_URL)
         with conn.cursor() as cur:
-            cur.execute(
-                """
+
+            query = """
                 SELECT id, image_name, is_valid_pose, yaw, pitch, roll, created_at, description, direction, keywords, classification
                 FROM faces
-                ORDER BY created_at DESC
-                LIMIT %s OFFSET %s
-            """,
-                (limit, offset),
-            )
+            """
+            conditions = []
+            params = []
+
+            if classification:
+                conditions.append("classification = %s")
+                params.append(classification)
+
+            if keyword:
+                # Use ILIKE for case-insensitive partial matching on the keywords string
+                conditions.append("keywords ILIKE %s")
+                params.append(f"%{keyword}%")
+
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+
+            query += " ORDER BY created_at DESC LIMIT %s OFFSET %s"
+            params.extend([limit, offset])
+
+            cur.execute(query, tuple(params))
 
             rows = cur.fetchall()
             faces = []
