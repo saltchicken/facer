@@ -206,6 +206,30 @@ def update_face_record(face_id: int, update: FaceUpdate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.delete("/faces/{face_id}")
+def delete_face(face_id: int):  # ‼️ Added DELETE endpoint
+    if not DB_URL:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    try:
+        conn = psycopg2.connect(DB_URL)
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM faces WHERE id = %s", (face_id,))
+
+                if cur.rowcount == 0:
+                    raise HTTPException(status_code=404, detail="Face record not found")
+
+        conn.close()
+        return {"status": "success", "message": f"Face {face_id} deleted successfully"}
+
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"Delete Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/filters")
 def get_filters():
     if not DB_URL:
@@ -337,7 +361,6 @@ def get_faces(
         return []
 
 
-
 @app.get("/export")
 def export_faces(
     keyword: list[str] = Query(None),
@@ -350,7 +373,6 @@ def export_faces(
         conn = psycopg2.connect(DB_URL)
         # Use a dictionary cursor if possible, but standard is fine since we know column order
         with conn.cursor() as cur:
-
             query = """
                 SELECT id, image_name, original_image
                 FROM faces
@@ -409,7 +431,6 @@ def export_faces(
 
                     if not original_bytes:
                         continue
-
 
                     # Create a unique filename: originalname_id.ext
                     path = Path(image_name)

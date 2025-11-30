@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import {
   Loader2, Tag, User, Edit2, Check, X,
-  ChevronLeft, ChevronRight, RefreshCw, ChevronDown, Download
+  ChevronLeft, ChevronRight, RefreshCw, ChevronDown, Download,
+  Trash2 // ‼️ Added Trash2 Icon
 } from 'lucide-react';
 import type { FaceRecord } from './types';
 
@@ -210,6 +211,24 @@ export default function Gallery() {
     }
   };
 
+  // ‼️ Added delete function
+  const deleteFace = async (id: number) => {
+    if (!window.confirm("Are you sure you want to delete this image? This action cannot be undone.")) return;
+
+    try {
+      const res = await fetch(`/faces/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setFaces(faces.filter(f => f.id !== id));
+        if (selectedImage?.id === id) setSelectedImage(null); // Close modal if open
+        if (editingId === id) setEditingId(null); // Exit edit mode
+      } else {
+        console.error("Failed to delete");
+      }
+    } catch (err) {
+      console.error("Error deleting", err);
+    }
+  };
+
 
   const handleClassificationChange = (newSelected: string[]) => {
     setFilters(prev => ({ ...prev, classifications: newSelected }));
@@ -360,21 +379,33 @@ export default function Gallery() {
                       placeholder="Keywords"
                     />
                   </div>
-                  <div className="flex gap-2 justify-end mt-2 pt-2 border-t border-slate-800">
+                  <div className="flex gap-2 justify-between mt-2 pt-2 border-t border-slate-800">
+
+                    {/* ‼️ Added Delete Button inside Edit Mode */}
                     <button
-                      onClick={() => saveEdit(face.id)}
-                      className="p-1.5 bg-green-600/20 text-green-400 rounded hover:bg-green-600/30 transition-colors"
-                      title="Save"
+                      onClick={() => deleteFace(face.id)}
+                      className="p-1.5 bg-red-900/30 text-red-400 rounded hover:bg-red-900/50 transition-colors"
+                      title="Delete Image"
                     >
-                      <Check size={14} />
+                      <Trash2 size={14} />
                     </button>
-                    <button
-                      onClick={cancelEditing}
-                      className="p-1.5 bg-red-600/20 text-red-400 rounded hover:bg-red-600/30 transition-colors"
-                      title="Cancel"
-                    >
-                      <X size={14} />
-                    </button>
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => saveEdit(face.id)}
+                        className="p-1.5 bg-green-600/20 text-green-400 rounded hover:bg-green-600/30 transition-colors"
+                        title="Save"
+                      >
+                        <Check size={14} />
+                      </button>
+                      <button
+                        onClick={cancelEditing}
+                        className="p-1.5 bg-slate-600/20 text-slate-400 rounded hover:bg-slate-600/30 transition-colors"
+                        title="Cancel"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : (
