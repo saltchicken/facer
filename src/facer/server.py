@@ -41,7 +41,7 @@ direction_finder = None
 embedder = None
 
 # Configuration Thresholds
-YAW_THRESHOLD = 45.0
+YAW_THRESHOLD = 40.0
 PITCH_THRESHOLD = 25.0
 
 MATCH_THRESHOLD = 0.4
@@ -299,8 +299,10 @@ async def reanalyze_face(face_id: int):
 
         # 1. Fetch original image and current bbox
         with conn.cursor() as cur:
+            # ‼️ Added classification to SELECT
             cur.execute(
-                "SELECT original_image, bbox FROM faces WHERE id = %s", (face_id,)
+                "SELECT original_image, bbox, classification FROM faces WHERE id = %s",
+                (face_id,),
             )
             row = cur.fetchone()
             if not row or not row[0]:
@@ -309,6 +311,7 @@ async def reanalyze_face(face_id: int):
 
             original_bytes = row[0]
             current_bbox = row[1]  # [x1, y1, x2, y2]
+            current_classification = row[2]  # ‼️ Capture current classification
 
         nparr = np.frombuffer(original_bytes, np.uint8)
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -375,8 +378,12 @@ async def reanalyze_face(face_id: int):
             emb_array = await run_in_threadpool(embedder.get_embedding, target_face)
             if emb_array.size > 0:
                 embedding_val = str(emb_array.tolist())
-                # Optional: Run ID check if we want to auto-classify on re-run
-                # identified_classification = identify_face_from_db(emb_array.tolist())
+
+                # ‼️ Check database for match only if current classification is blank
+                if not current_classification:
+                    identified_classification = identify_face_from_db(
+                        emb_array.tolist()
+                    )
 
         # 6. Update Database
         with conn:
@@ -398,10 +405,13 @@ async def reanalyze_face(face_id: int):
                     face_id,
                 ]
 
-                # If we want to update classification if found:
-                # if identified_classification:
-                #    update_query = update_query.replace("WHERE", ", classification = %s WHERE")
-                #    params.insert(-1, identified_classification)
+                # ‼️ Dynamically add classification update if we found a match
+                if identified_classification:
+                    update_query = update_query.replace(
+                        "WHERE", ", classification = %s WHERE"
+                    )
+                    # Insert classification before the ID (which is the last param)
+                    params.insert(-1, identified_classification)
 
                 cur.execute(update_query, tuple(params))
 
@@ -412,6 +422,8 @@ async def reanalyze_face(face_id: int):
         print(f"   -> Valid: {is_valid}")
         print(f"   -> Yaw: {yaw:.2f}, Pitch: {pitch:.2f}")
         print(f"   -> Direction: {label}")
+        if identified_classification:
+            print(f"   -> Identified as: {identified_classification}")
 
         return {
             "status": "success",
@@ -423,6 +435,8 @@ async def reanalyze_face(face_id: int):
                 "pitch": pitch,
                 "is_valid_pose": is_valid,
                 "direction": label,
+                "classification": identified_classification
+                or current_classification,  # ‼️ Return updated class
             },
         }
 
