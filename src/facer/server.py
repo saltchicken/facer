@@ -234,12 +234,20 @@ def get_face_image(face_id: int):
         return Response(status_code=500)
 
 
-
 def process_analysis_sync(
     image, save_flag, filename, desc, keys, classif, file_hash, contents, width, height
 ):
     # 2. Detect
     detections = detector.detect_and_crop(image)
+
+    # ‼️ Change: Prevent saving if multiple faces are detected in the image
+    if len(detections) > 1:
+        if save_flag:
+            print(
+                f"⚠️  Multiple faces detected ({len(detections)}). Saving disabled for '{filename}'."
+            )
+        save_flag = False
+
     results = []
     faces_to_save = []
 
@@ -311,7 +319,6 @@ async def analyze_image(
         file_hash = hashlib.sha256(contents).hexdigest()
 
         if save:
-
             # but optimally could be awaited if converted to async.
             # For now, it's fast enough to leave or wrap.
             existing_name = check_image_exists(file_hash)
@@ -322,7 +329,6 @@ async def analyze_image(
                 )
 
         nparr = np.frombuffer(contents, np.uint8)
-
 
         # but usually negligible compared to ML models.
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -336,7 +342,6 @@ async def analyze_image(
         raise he
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
 
     # This prevents the async event loop from blocking while YOLO/MediaPipe run.
     results = await run_in_threadpool(
@@ -364,3 +369,4 @@ if FRONTEND_DIR.exists():
 
 if __name__ == "__main__":
     uvicorn.run("facer.server:app", host="0.0.0.0", port=8000, reload=True)
+
