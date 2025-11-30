@@ -204,7 +204,6 @@ def update_face_record(face_id: int, update: FaceUpdate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-
 @app.get("/filters")
 def get_filters():
     if not DB_URL:
@@ -239,7 +238,6 @@ def get_filters():
         return {"classifications": [], "keywords": []}
 
 
-
 @app.get("/faces")
 def get_faces(
     limit: int = 100, offset: int = 0, keyword: str = None, classification: str = None
@@ -249,7 +247,6 @@ def get_faces(
     try:
         conn = psycopg2.connect(DB_URL)
         with conn.cursor() as cur:
-
             query = """
                 SELECT id, image_name, is_valid_pose, yaw, pitch, roll, created_at, description, direction, keywords, classification
                 FROM faces
@@ -258,13 +255,21 @@ def get_faces(
             params = []
 
             if classification:
-                conditions.append("classification = %s")
-                params.append(classification)
+                # ‼️ Handle special "Unclassified" filter
+                if classification == "__NONE__":
+                    conditions.append("(classification IS NULL OR classification = '')")
+                else:
+                    conditions.append("classification = %s")
+                    params.append(classification)
 
             if keyword:
-                # Use ILIKE for case-insensitive partial matching on the keywords string
-                conditions.append("keywords ILIKE %s")
-                params.append(f"%{keyword}%")
+                # ‼️ Handle special "No Keywords" filter
+                if keyword == "__NONE__":
+                    conditions.append("(keywords IS NULL OR keywords = '')")
+                else:
+                    # Use ILIKE for case-insensitive partial matching on the keywords string
+                    conditions.append("keywords ILIKE %s")
+                    params.append(f"%{keyword}%")
 
             if conditions:
                 query += " WHERE " + " AND ".join(conditions)

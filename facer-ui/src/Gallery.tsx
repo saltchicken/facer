@@ -154,6 +154,8 @@ export default function Gallery() {
               className="bg-transparent text-sm text-slate-300 focus:outline-none w-32"
             >
               <option value="">All Classes</option>
+              {/* ‼️ Added Unclassified option */}
+              <option value="__NONE__">Unclassified</option>
               {filterOptions.classifications.map((c, i) => (
                 <option key={i} value={c}>{c}</option>
               ))}
@@ -169,6 +171,8 @@ export default function Gallery() {
               className="bg-transparent text-sm text-slate-300 focus:outline-none w-32"
             >
               <option value="">All Keywords</option>
+              {/* ‼️ Added No Keywords option */}
+              <option value="__NONE__">No Keywords</option>
               {filterOptions.keywords.map((k, i) => (
                 <option key={i} value={k}>{k}</option>
               ))}
