@@ -28,7 +28,7 @@ class FaceData(BaseModel):
     embedding: Optional[List[float]] = Field(
         None, description="1x512 (or similar) vector for face recognition"
     )
-    # ‼️ Added classification field to carry auto-detected names
+
     classification: Optional[str] = Field(
         None, description="Auto-detected classification from database match"
     )
@@ -61,4 +61,3 @@ class AnalysisResponse(BaseModel):
     face_count: int
     results: List[FaceData]
     error: Optional[str] = None
-

@@ -15,7 +15,7 @@ import hashlib
 import os
 import zipfile
 import io
-import ast  # ‼️ Added for parsing stored embeddings
+import ast
 from typing import List
 from dotenv import load_dotenv
 from psycopg2 import Binary
@@ -43,7 +43,7 @@ embedder = None
 # Configuration Thresholds
 YAW_THRESHOLD = 25.0
 PITCH_THRESHOLD = 25.0
-# ‼️ Added threshold for identification
+
 MATCH_THRESHOLD = 0.4
 
 
@@ -103,7 +103,7 @@ def check_image_exists(file_hash: str):
         return None
 
 
-# ‼️ Added function to identify face against DB records
+
 def identify_face_from_db(target_embedding: list) -> str:
     """
     Fetches all classified faces from DB, calculates cosine similarity,
@@ -118,18 +118,18 @@ def identify_face_from_db(target_embedding: list) -> str:
         best_match_name = None
         highest_similarity = MATCH_THRESHOLD
 
-        # ‼️ Log start of identification process
+
         print(f"‼️ [ID] Starting identification (Threshold: {MATCH_THRESHOLD})...")
 
         with conn.cursor() as cur:
             # Fetch only records that have a classification and an embedding
-            # ‼️ Updated query to fetch image_name for better logging
+
             cur.execute(
                 "SELECT classification, embedding, image_name FROM faces WHERE classification IS NOT NULL AND classification != '' AND embedding IS NOT NULL"
             )
             rows = cur.fetchall()
 
-            # ‼️ Log candidate count
+
             print(f"‼️ [ID] Found {len(rows)} candidates in database.")
 
             for classification, embedding_str, image_name in rows:
@@ -151,11 +151,11 @@ def identify_face_from_db(target_embedding: list) -> str:
                     similarity = dot_product / (norm_a * norm_b)
 
                     # print(
-                    #     f"‼️ [ID] Comparing vs '{classification}' (Img: {image_name}): Score = {similarity:.4f}"
+
                     # )
 
                     if similarity > highest_similarity:
-                        # ‼️ Log new best match
+
                         print(
                             f"‼️ [ID] -> New Best Match! '{classification}' ({similarity:.4f} > {highest_similarity:.4f})"
                         )
@@ -170,7 +170,7 @@ def identify_face_from_db(target_embedding: list) -> str:
 
         conn.close()
 
-        # ‼️ Log final result
+
         if best_match_name:
             print(f"‼️ [ID] FINAL RESULT: Identified as '{best_match_name}'")
         else:
@@ -204,7 +204,7 @@ def save_to_db(
                         str(face_data.embedding) if face_data.embedding else None
                     )
 
-                    # ‼️ Use auto-detected classification if global classification is empty
+
                     final_classification = classification
                     if not final_classification and face_data.classification:
                         final_classification = face_data.classification
@@ -222,7 +222,7 @@ def save_to_db(
                             filename,
                             description,
                             keywords,
-                            final_classification,  # ‼️ Uses the determined class
+                            final_classification,
                             face_data.bbox,
                             face_data.pose.yaw,
                             face_data.pose.pitch,
@@ -659,14 +659,14 @@ def process_analysis_sync(
 
         # 5. Embedding
         embedding_vector = []
-        identified_classification = None  # ‼️ Variable to hold match result
+        identified_classification = None
 
         if is_valid:
             emb_array = embedder.get_embedding(face_crop)
             if emb_array.size > 0:
                 embedding_vector = emb_array.tolist()
 
-                # ‼️ If user didn't specify classification, try to identify from DB
+
                 if not classif:
                     identified_classification = identify_face_from_db(embedding_vector)
                     if identified_classification:
@@ -680,7 +680,7 @@ def process_analysis_sync(
             pose=FacePose(yaw=yaw, pitch=pitch, roll=roll, direction_label=label),
             is_valid_pose=is_valid,
             embedding=embedding_vector if embedding_vector else None,
-            classification=identified_classification,  # ‼️ Pass the found name
+            classification=identified_classification,
         )
 
         results.append(face_data)
@@ -705,7 +705,7 @@ def process_analysis_sync(
                 pose = FallbackPose()
                 is_valid_pose = False
                 embedding = None
-                classification = None  # ‼️ Added for fallback compatibility
+                classification = None
 
             faces_to_save = [FallbackData()]
 
