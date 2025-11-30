@@ -1,147 +1,17 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   Upload, Camera, Save, AlertCircle, CheckCircle, 
-  Loader2, LayoutGrid, X, Calendar, Tag, User 
+  Loader2, LayoutGrid, X
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
+import type { AnalysisResponse } from './types';
+import Gallery from './Gallery';
 import { twMerge } from 'tailwind-merge';
-
-// --- Types (Inlined to ensure single-file compilation) ---
-
-export interface FacePose {
-  yaw: number;
-  pitch: number;
-  roll: number;
-  direction_label: string;
-}
-
-export interface FaceData {
-  bbox: [number, number, number, number]; // x1, y1, x2, y2
-  pose: FacePose;
-  is_valid_pose: boolean;
-  embedding: number[] | null;
-}
-
-export interface AnalysisResponse {
-  filename: string;
-  face_count: number;
-  results: FaceData[];
-}
-
-export interface FaceRecord {
-  id: number;
-  image_name: string;
-  is_valid_pose: boolean;
-  yaw: number;
-  pitch: number;
-  roll: number;
-  created_at: string;
-  description: string | null;
-  direction: string;
-  keywords: string | null;
-  classification: string | null;
-}
 
 // --- Utility ---
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
-
-// --- Gallery Component (Inlined) ---
-
-function Gallery() {
-  const [faces, setFaces] = useState<FaceRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchFaces();
-  }, []);
-
-  const fetchFaces = async () => {
-    try {
-      const res = await fetch('/faces?limit=100');
-      const data = await res.json();
-      setFaces(data);
-    } catch (err) {
-      console.error("Failed to load faces", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64 text-indigo-400">
-        <Loader2 className="w-8 h-8 animate-spin" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-slate-200">Database Records</h2>
-        <span className="text-slate-500 text-sm">{faces.length} items found</span>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {faces.map((face) => (
-          <div 
-            key={face.id} 
-            className="group bg-slate-900 border border-slate-800 rounded-xl overflow-hidden hover:border-indigo-500/50 transition-all hover:shadow-xl hover:shadow-indigo-500/10"
-          >
-            {/* Image Container */}
-            <div className="aspect-square bg-slate-950 relative overflow-hidden">
-              <img 
-                src={`/faces/${face.id}/image`} 
-                alt={face.image_name}
-                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                loading="lazy"
-              />
-              <div className="absolute top-2 right-2">
-                <span className={`px-2 py-1 rounded text-xs font-bold border ${
-                  face.is_valid_pose 
-                    ? 'bg-green-500/20 text-green-400 border-green-500/30' 
-                    : 'bg-red-500/20 text-red-400 border-red-500/30'
-                }`}>
-                  {face.direction}
-                </span>
-              </div>
-            </div>
-
-            {/* Details */}
-            <div className="p-4 space-y-3">
-              <div className="flex items-start justify-between gap-2">
-                <h3 className="font-medium text-slate-200 truncate" title={face.image_name}>
-                  {face.description || face.image_name}
-                </h3>
-              </div>
-
-              <div className="space-y-2 text-xs text-slate-400">
-                <div className="flex items-center gap-2">
-                  <User className="w-3 h-3" />
-                  <span className="truncate">{face.classification || 'Unclassified'}</span>
-                </div>
-                {face.keywords && (
-                  <div className="flex items-center gap-2">
-                    <Tag className="w-3 h-3" />
-                    <span className="truncate">{face.keywords}</span>
-                  </div>
-                )}
-                <div className="flex items-center gap-2 text-slate-600">
-                  <Calendar className="w-3 h-3" />
-                  <span>{new Date(face.created_at).toLocaleDateString()}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// --- Main App Component ---
 
 function App() {
 
@@ -153,6 +23,7 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [imgDim, setImgDim] = useState<{ w: number; h: number } | null>(null);
+  const [isDragging, setIsDragging] = useState(false); // ‼️ New drag state
 
   // Form Data State
   const [description, setDescription] = useState('');
@@ -188,6 +59,32 @@ function App() {
     // Reset file input value so the same file can be selected again if needed
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const droppedFile = e.dataTransfer.files[0];
+      // Only process images
+      if (droppedFile.type.startsWith('image/')) {
+        setFile(droppedFile);
+        setPreviewUrl(URL.createObjectURL(droppedFile));
+        setAnalysis(null);
+        setImgDim(null);
+      }
     }
   };
 
@@ -309,10 +206,15 @@ function App() {
             {/* Left Column: Image Preview */}
             <div className="lg:col-span-2 space-y-4">
 
-              {/* The previous use of object-contain inside a flex container caused the bounding boxes (positioned by %) 
-                  to misalign because the coordinate system of the div didn't match the rendered image size.
-              */}
-              <div className="relative bg-slate-900 rounded-xl overflow-hidden border border-slate-800 shadow-2xl min-h-[400px] flex items-center justify-center group p-4">
+              <div 
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={cn(
+                  "relative bg-slate-900 rounded-xl overflow-hidden border transition-all duration-300 shadow-2xl min-h-[400px] flex items-center justify-center group p-4",
+                  isDragging ? "border-indigo-500 border-2 bg-slate-800 scale-[1.01]" : "border-slate-800"
+                )}
+              >
                 {previewUrl ? (
                   /* "inline-block" ensures this div shrinks to fit the image width exactly.
                       "relative" establishes the coordinate boundary for the bounding boxes.
@@ -342,8 +244,10 @@ function App() {
                     onClick={() => fileInputRef.current?.click()}
                     className="text-slate-500 flex flex-col items-center gap-4 cursor-pointer hover:text-indigo-400 transition-colors"
                   >
-                    <Upload className="w-12 h-12" />
-                    <p className="font-medium">Click to upload an image</p>
+                    <Upload className={cn("w-12 h-12 transition-transform", isDragging && "scale-125 text-indigo-400")} />
+                    <p className="font-medium">
+                        {isDragging ? "Drop image here" : "Click or drag to upload an image"}
+                    </p>
                   </div>
                 )}
                 
