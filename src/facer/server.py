@@ -277,7 +277,7 @@ def get_faces(
         conn = psycopg2.connect(DB_URL)
         with conn.cursor() as cur:
             query = """
-                SELECT id, image_name, is_valid_pose, yaw, pitch, roll, created_at, description, direction, keywords, classification
+                SELECT id, image_name, is_valid_pose, yaw, pitch, roll, created_at, description, direction, keywords, classification, width, height
                 FROM faces
             """
             conditions = []
@@ -352,6 +352,8 @@ def get_faces(
                         "direction": row[8],
                         "keywords": row[9],
                         "classification": row[10],
+                        "width": row[11],
+                        "height": row[12],
                     }
                 )
         conn.close()
@@ -468,7 +470,6 @@ def get_face_image(face_id: int):
             )
             row = cur.fetchone()
 
-
             # This allows images with empty bbox (no faces) to be processed.
             if row and row[0]:
                 original_bytes = row[0]
@@ -545,7 +546,6 @@ def process_analysis_sync(
     # 2. Detect
     detections = detector.detect_and_crop(image)
 
-
     # Logic is now handled below to save a fallback record instead.
 
     results = []
@@ -590,11 +590,9 @@ def process_analysis_sync(
     if save_flag:
         faces_to_save = []
 
-
         if len(results) == 1:
             faces_to_save = results
         else:
-
             # Contains no embedding, empty bbox, null pose, invalid status.
 
             class FallbackPose:

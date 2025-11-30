@@ -30,4 +30,6 @@ export interface FaceRecord {
   direction: string;
   keywords: string | null;
   classification: string | null;
+  width: number | null;
+  height: number | null;
 }

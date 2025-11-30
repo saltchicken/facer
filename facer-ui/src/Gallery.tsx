@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   Loader2, Tag, User, Edit2, Check, X,
   ChevronLeft, ChevronRight, RefreshCw, ChevronDown, Download,
-  Trash2
+  Trash2, Maximize
 } from 'lucide-react';
 import type { FaceRecord } from './types';
 
@@ -445,6 +445,14 @@ export default function Gallery() {
                     <div className="flex items-center gap-2">
                       <Tag className="w-3 h-3" />
                       <span className="truncate">{face.keywords || 'No keywords'}</span>
+                    </div>
+
+
+                    <div className="flex items-center gap-2">
+                      <Maximize className="w-3 h-3" />
+                      <span className="truncate">
+                        {face.width && face.height ? `${face.width} x ${face.height} px` : 'Unknown Size'}
+                      </span>
                     </div>
                   </div>
                 </>
