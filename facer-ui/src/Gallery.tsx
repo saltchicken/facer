@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Loader2, Tag, User, Edit2, Check, X } from 'lucide-react';
+import {
+  Loader2, Tag, User, Edit2, Check, X,
+  ChevronLeft, ChevronRight
+} from 'lucide-react';
 import type { FaceRecord } from './types';
+
+const ITEMS_PER_PAGE = 8;
 
 export default function Gallery() {
   const [faces, setFaces] = useState<FaceRecord[]>([]);
   const [loading, setLoading] = useState(true);
-
+  const [page, setPage] = useState(0);
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<{
@@ -16,11 +21,14 @@ export default function Gallery() {
 
   useEffect(() => {
     fetchFaces();
-  }, []);
+  }, [page]);
 
   const fetchFaces = async () => {
+    setLoading(true);
     try {
-      const res = await fetch('/faces?limit=100');
+
+      const offset = page * ITEMS_PER_PAGE;
+      const res = await fetch(`/faces?limit=${ITEMS_PER_PAGE}&offset=${offset}`);
       const data = await res.json();
       setFaces(data);
     } catch (err) {
@@ -74,10 +82,13 @@ export default function Gallery() {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-6 animate-in fade-in duration-500 pb-12">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-slate-200">Database Records</h2>
-        <span className="text-slate-500 text-sm">{faces.length} items found</span>
+
+        <span className="text-slate-500 text-sm">
+          Showing {faces.length} items (Page {page + 1})
+        </span>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -96,8 +107,8 @@ export default function Gallery() {
               />
               <div className="absolute top-2 right-2">
                 <span className={`px-2 py-1 rounded text-xs font-bold border ${face.is_valid_pose
-                    ? 'bg-green-500/20 text-green-400 border-green-500/30'
-                    : 'bg-red-500/20 text-red-400 border-red-500/30'
+                  ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                  : 'bg-red-500/20 text-red-400 border-red-500/30'
                   }`}>
                   {face.direction}
                 </span>
@@ -183,6 +194,32 @@ export default function Gallery() {
           </div>
         ))}
       </div>
+
+
+      <div className="flex items-center justify-center gap-4 mt-8 pt-4 border-t border-slate-800">
+        <button
+          onClick={() => setPage((p) => Math.max(0, p - 1))}
+          disabled={page === 0}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all text-slate-400"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          Previous
+        </button>
+
+        <span className="text-slate-500 font-mono text-sm bg-slate-900 px-3 py-1 rounded border border-slate-800">
+          Page {page + 1}
+        </span>
+
+        <button
+          onClick={() => setPage((p) => p + 1)}
+          disabled={faces.length < ITEMS_PER_PAGE}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all text-slate-400"
+        >
+          Next
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+
     </div>
   );
 }
