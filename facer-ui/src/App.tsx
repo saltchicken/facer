@@ -1,16 +1,147 @@
-import React, { useState, useRef } from 'react';
-
-import { Upload, Camera, Save, AlertCircle, CheckCircle, Loader2, LayoutGrid } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { 
+  Upload, Camera, Save, AlertCircle, CheckCircle, 
+  Loader2, LayoutGrid, X, Calendar, Tag, User 
+} from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import type { AnalysisResponse  } from './types';
 
-import Gallery from './Gallery'; 
+// --- Types (Inlined to ensure single-file compilation) ---
 
-// Utility for cleaner tailwind classes
+export interface FacePose {
+  yaw: number;
+  pitch: number;
+  roll: number;
+  direction_label: string;
+}
+
+export interface FaceData {
+  bbox: [number, number, number, number]; // x1, y1, x2, y2
+  pose: FacePose;
+  is_valid_pose: boolean;
+  embedding: number[] | null;
+}
+
+export interface AnalysisResponse {
+  filename: string;
+  face_count: number;
+  results: FaceData[];
+}
+
+export interface FaceRecord {
+  id: number;
+  image_name: string;
+  is_valid_pose: boolean;
+  yaw: number;
+  pitch: number;
+  roll: number;
+  created_at: string;
+  description: string | null;
+  direction: string;
+  keywords: string | null;
+  classification: string | null;
+}
+
+// --- Utility ---
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+// --- Gallery Component (Inlined) ---
+
+function Gallery() {
+  const [faces, setFaces] = useState<FaceRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchFaces();
+  }, []);
+
+  const fetchFaces = async () => {
+    try {
+      const res = await fetch('/faces?limit=100');
+      const data = await res.json();
+      setFaces(data);
+    } catch (err) {
+      console.error("Failed to load faces", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64 text-indigo-400">
+        <Loader2 className="w-8 h-8 animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold text-slate-200">Database Records</h2>
+        <span className="text-slate-500 text-sm">{faces.length} items found</span>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        {faces.map((face) => (
+          <div 
+            key={face.id} 
+            className="group bg-slate-900 border border-slate-800 rounded-xl overflow-hidden hover:border-indigo-500/50 transition-all hover:shadow-xl hover:shadow-indigo-500/10"
+          >
+            {/* Image Container */}
+            <div className="aspect-square bg-slate-950 relative overflow-hidden">
+              <img 
+                src={`/faces/${face.id}/image`} 
+                alt={face.image_name}
+                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                loading="lazy"
+              />
+              <div className="absolute top-2 right-2">
+                <span className={`px-2 py-1 rounded text-xs font-bold border ${
+                  face.is_valid_pose 
+                    ? 'bg-green-500/20 text-green-400 border-green-500/30' 
+                    : 'bg-red-500/20 text-red-400 border-red-500/30'
+                }`}>
+                  {face.direction}
+                </span>
+              </div>
+            </div>
+
+            {/* Details */}
+            <div className="p-4 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="font-medium text-slate-200 truncate" title={face.image_name}>
+                  {face.description || face.image_name}
+                </h3>
+              </div>
+
+              <div className="space-y-2 text-xs text-slate-400">
+                <div className="flex items-center gap-2">
+                  <User className="w-3 h-3" />
+                  <span className="truncate">{face.classification || 'Unclassified'}</span>
+                </div>
+                {face.keywords && (
+                  <div className="flex items-center gap-2">
+                    <Tag className="w-3 h-3" />
+                    <span className="truncate">{face.keywords}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 text-slate-600">
+                  <Calendar className="w-3 h-3" />
+                  <span>{new Date(face.created_at).toLocaleDateString()}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// --- Main App Component ---
 
 function App() {
 
@@ -39,6 +170,24 @@ function App() {
       setPreviewUrl(URL.createObjectURL(selectedFile));
       setAnalysis(null);
       setImgDim(null);
+    }
+  };
+
+  /* Handler to remove current image and reset state */
+  const handleRemoveImage = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering any parent click events
+    
+    // Revoke object URL to avoid memory leaks
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    
+    setFile(null);
+    setPreviewUrl(null);
+    setAnalysis(null);
+    setImgDim(null);
+
+    // Reset file input value so the same file can be selected again if needed
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -103,9 +252,8 @@ function App() {
           style={style}
         >
           {/* Tooltip on Hover */}
-
           <div className="opacity-0 group-hover/box:opacity-100 absolute -top-8 left-0 bg-black/80 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-50 pointer-events-none transition-opacity">
-             Face #{idx + 1}: {face.pose.direction_label}
+              Face #{idx + 1}: {face.pose.direction_label}
           </div>
         </div>
       );
@@ -124,7 +272,6 @@ function App() {
             </div>
             <h1 className="text-2xl font-bold tracking-tight">Facer<span className="text-indigo-400">UI</span></h1>
           </div>
-
 
           <nav className="flex bg-slate-900 p-1 rounded-lg border border-slate-800">
             <button
@@ -154,7 +301,6 @@ function App() {
           </nav>
         </header>
 
-
         {currentView === 'gallery' ? (
           <Gallery />
         ) : (
@@ -163,23 +309,33 @@ function App() {
             {/* Left Column: Image Preview */}
             <div className="lg:col-span-2 space-y-4">
 
-                  The previous use of object-contain inside a flex container caused the bounding boxes (positioned by %) 
+              {/* The previous use of object-contain inside a flex container caused the bounding boxes (positioned by %) 
                   to misalign because the coordinate system of the div didn't match the rendered image size.
               */}
               <div className="relative bg-slate-900 rounded-xl overflow-hidden border border-slate-800 shadow-2xl min-h-[400px] flex items-center justify-center group p-4">
                 {previewUrl ? (
-                  /* ‼️ CRITICAL FIX: "inline-block" ensures this div shrinks to fit the image width exactly.
-                     "relative" establishes the coordinate boundary for the bounding boxes.
+                  /* "inline-block" ensures this div shrinks to fit the image width exactly.
+                      "relative" establishes the coordinate boundary for the bounding boxes.
                   */
                   <div className="relative inline-block">
                     <img 
                       src={previewUrl} 
                       alt="Preview" 
                       onLoad={onImgLoad}
-                      /* ‼️ CHANGED: Removed object-contain, allowed height to drive width naturally */
+                      /* Removed object-contain, allowed height to drive width naturally */
                       className="max-h-[70vh] w-auto block rounded-lg"
                     />
                     {renderBoxes()}
+
+                    {/* Remove Image Button */}
+                    <button
+                      onClick={handleRemoveImage}
+                      className="absolute top-2 right-2 p-2 bg-black/60 hover:bg-red-500 text-white rounded-full backdrop-blur-sm transition-all shadow-lg border border-white/10 z-50 opacity-0 group-hover:opacity-100 scale-90 hover:scale-100"
+                      title="Remove Image"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+
                   </div>
                 ) : (
                   <div 
