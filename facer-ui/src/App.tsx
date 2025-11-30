@@ -97,13 +97,14 @@ function App() {
         <div
           key={idx}
           className={cn(
-            "absolute border-2 transition-all duration-300 group hover:bg-white/10 cursor-pointer",
+            "absolute border-2 transition-all duration-300 group/box hover:bg-white/10 cursor-pointer",
             face.is_valid_pose ? "border-green-500" : "border-red-500"
           )}
           style={style}
         >
           {/* Tooltip on Hover */}
-          <div className="opacity-0 group-hover:opacity-100 absolute -top-8 left-0 bg-black/80 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10 pointer-events-none">
+          {/* ‼️ CHANGED: Added z-index and fixed positioning context for tooltip */}
+          <div className="opacity-0 group-hover/box:opacity-100 absolute -top-8 left-0 bg-black/80 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-50 pointer-events-none transition-opacity">
              Face #{idx + 1}: {face.pose.direction_label}
           </div>
         </div>
@@ -161,14 +162,22 @@ function App() {
             
             {/* Left Column: Image Preview */}
             <div className="lg:col-span-2 space-y-4">
-              <div className="relative bg-slate-900 rounded-xl overflow-hidden border border-slate-800 shadow-2xl min-h-[400px] flex items-center justify-center group">
+              {/* ‼️ CHANGED: Replaced the flex container with a layout that supports accurate absolute positioning overlays.
+                  The previous use of object-contain inside a flex container caused the bounding boxes (positioned by %) 
+                  to misalign because the coordinate system of the div didn't match the rendered image size.
+              */}
+              <div className="relative bg-slate-900 rounded-xl overflow-hidden border border-slate-800 shadow-2xl min-h-[400px] flex items-center justify-center group p-4">
                 {previewUrl ? (
-                  <div className="relative w-full h-full flex justify-center">
+                  /* ‼️ CRITICAL FIX: "inline-block" ensures this div shrinks to fit the image width exactly.
+                     "relative" establishes the coordinate boundary for the bounding boxes.
+                  */
+                  <div className="relative inline-block">
                     <img 
                       src={previewUrl} 
                       alt="Preview" 
                       onLoad={onImgLoad}
-                      className="max-w-full max-h-[70vh] object-contain"
+                      /* ‼️ CHANGED: Removed object-contain, allowed height to drive width naturally */
+                      className="max-h-[70vh] w-auto block rounded-lg"
                     />
                     {renderBoxes()}
                   </div>
