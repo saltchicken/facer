@@ -41,7 +41,7 @@ direction_finder = None
 embedder = None
 
 # Configuration Thresholds
-YAW_THRESHOLD = 25.0
+YAW_THRESHOLD = 45.0
 PITCH_THRESHOLD = 25.0
 
 MATCH_THRESHOLD = 0.4
@@ -103,7 +103,6 @@ def check_image_exists(file_hash: str):
         return None
 
 
-
 def identify_face_from_db(target_embedding: list) -> str:
     """
     Fetches all classified faces from DB, calculates cosine similarity,
@@ -118,7 +117,6 @@ def identify_face_from_db(target_embedding: list) -> str:
         best_match_name = None
         highest_similarity = MATCH_THRESHOLD
 
-
         print(f"‼️ [ID] Starting identification (Threshold: {MATCH_THRESHOLD})...")
 
         with conn.cursor() as cur:
@@ -128,7 +126,6 @@ def identify_face_from_db(target_embedding: list) -> str:
                 "SELECT classification, embedding, image_name FROM faces WHERE classification IS NOT NULL AND classification != '' AND embedding IS NOT NULL"
             )
             rows = cur.fetchall()
-
 
             print(f"‼️ [ID] Found {len(rows)} candidates in database.")
 
@@ -155,7 +152,6 @@ def identify_face_from_db(target_embedding: list) -> str:
                     # )
 
                     if similarity > highest_similarity:
-
                         print(
                             f"‼️ [ID] -> New Best Match! '{classification}' ({similarity:.4f} > {highest_similarity:.4f})"
                         )
@@ -169,7 +165,6 @@ def identify_face_from_db(target_embedding: list) -> str:
                     continue  # Skip malformed embeddings
 
         conn.close()
-
 
         if best_match_name:
             print(f"‼️ [ID] FINAL RESULT: Identified as '{best_match_name}'")
@@ -203,7 +198,6 @@ def save_to_db(
                     embedding_val = (
                         str(face_data.embedding) if face_data.embedding else None
                     )
-
 
                     final_classification = classification
                     if not final_classification and face_data.classification:
@@ -291,6 +285,149 @@ def update_face_record(face_id: int, update: FaceUpdate):
         raise he
     except Exception as e:
         print(f"Update Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ‼️ New Endpoint: Re-analyze an existing face in the DB
+@app.post("/faces/{face_id}/reanalyze")
+async def reanalyze_face(face_id: int):
+    if not DB_URL:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    try:
+        conn = psycopg2.connect(DB_URL)
+
+        # 1. Fetch original image and current bbox
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT original_image, bbox FROM faces WHERE id = %s", (face_id,)
+            )
+            row = cur.fetchone()
+            if not row or not row[0]:
+                conn.close()
+                raise HTTPException(status_code=404, detail="Image not found")
+
+            original_bytes = row[0]
+            current_bbox = row[1]  # [x1, y1, x2, y2]
+
+        nparr = np.frombuffer(original_bytes, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if image is None:
+            conn.close()
+            raise HTTPException(status_code=500, detail="Failed to decode image")
+
+        # 2. Run Detection
+        detections = await run_in_threadpool(detector.detect_and_crop, image)
+
+        if not detections:
+            conn.close()
+            return {"error": "No faces detected in original image"}
+
+        # 3. Find matching face (closest center to old bbox)
+        target_face = None
+        target_bbox = None
+
+        if current_bbox and len(current_bbox) == 4:
+            cx_old = (current_bbox[0] + current_bbox[2]) / 2
+            cy_old = (current_bbox[1] + current_bbox[3]) / 2
+
+            min_dist = float("inf")
+
+            for face_crop, bbox in detections:
+                cx_new = (bbox[0] + bbox[2]) / 2
+                cy_new = (bbox[1] + bbox[3]) / 2
+                dist = ((cx_new - cx_old) ** 2 + (cy_new - cy_old) ** 2) ** 0.5
+
+                if dist < min_dist:
+                    min_dist = dist
+                    target_face = face_crop
+                    target_bbox = bbox
+        else:
+            # If no previous bbox, just take the first one
+            target_face, target_bbox = detections[0]
+
+        # 4. Analyze Pose
+        direction_info = await run_in_threadpool(
+            direction_finder.direction, target_face
+        )
+        yaw, pitch, roll = 0.0, 0.0, 0.0
+        label = "unknown"
+
+        if direction_info:
+            # ‼️ Explicit float cast to avoid numpy types in DB
+            yaw = float(direction_info.yaw)
+            pitch = float(direction_info.pitch)
+            label = str(direction_info)
+
+        # ‼️ Explicit bool cast
+        is_valid = bool(
+            direction_info is not None
+            and abs(yaw) < YAW_THRESHOLD
+            and abs(pitch) < PITCH_THRESHOLD
+        )
+
+        # 5. Embedding & Identify
+        embedding_val = None
+        identified_classification = None
+
+        if is_valid:
+            emb_array = await run_in_threadpool(embedder.get_embedding, target_face)
+            if emb_array.size > 0:
+                embedding_val = str(emb_array.tolist())
+                # Optional: Run ID check if we want to auto-classify on re-run
+                # identified_classification = identify_face_from_db(emb_array.tolist())
+
+        # 6. Update Database
+        with conn:
+            with conn.cursor() as cur:
+                update_query = """
+                    UPDATE faces 
+                    SET bbox = %s, yaw = %s, pitch = %s, roll = %s, 
+                        is_valid_pose = %s, direction = %s, embedding = %s
+                    WHERE id = %s
+                """
+                params = [
+                    target_bbox,
+                    yaw,
+                    pitch,
+                    roll,
+                    is_valid,
+                    label,
+                    embedding_val,
+                    face_id,
+                ]
+
+                # If we want to update classification if found:
+                # if identified_classification:
+                #    update_query = update_query.replace("WHERE", ", classification = %s WHERE")
+                #    params.insert(-1, identified_classification)
+
+                cur.execute(update_query, tuple(params))
+
+        conn.close()
+
+        # ‼️ Log the results of the re-analysis
+        print(f"✅ Re-analyzed Face ID {face_id}:")
+        print(f"   -> Valid: {is_valid}")
+        print(f"   -> Yaw: {yaw:.2f}, Pitch: {pitch:.2f}")
+        print(f"   -> Direction: {label}")
+
+        return {
+            "status": "success",
+            "message": "Face re-analyzed and updated",
+            "data": {
+                "id": face_id,
+                "bbox": target_bbox,
+                "yaw": yaw,
+                "pitch": pitch,
+                "is_valid_pose": is_valid,
+                "direction": label,
+            },
+        }
+
+    except Exception as e:
+        print(f"Reanalyze Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -665,7 +802,6 @@ def process_analysis_sync(
             emb_array = embedder.get_embedding(face_crop)
             if emb_array.size > 0:
                 embedding_vector = emb_array.tolist()
-
 
                 if not classif:
                     identified_classification = identify_face_from_db(embedding_vector)

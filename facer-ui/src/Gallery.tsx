@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   Loader2, Tag, User, Edit2, Check, X,
   ChevronLeft, ChevronRight, RefreshCw, ChevronDown, Download,
-  Trash2, Maximize
+  Trash2, Maximize, ScanSearch
 } from 'lucide-react';
 import type { FaceRecord } from './types';
 
@@ -92,7 +92,7 @@ function MultiSelect({ label, icon: Icon, options, selected, onChange, noneLabel
   );
 }
 
-
+// ‼️ Removed Prop Interface since we now use API
 export default function Gallery() {
   const [faces, setFaces] = useState<FaceRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,6 +101,8 @@ export default function Gallery() {
 
 
   const [selectedImage, setSelectedImage] = useState<FaceRecord | null>(null);
+  // ‼️ Loading state for re-analysis
+  const [analyzing, setAnalyzing] = useState(false);
 
 
   const [filters, setFilters] = useState<{
@@ -256,6 +258,41 @@ export default function Gallery() {
     setFilters({ keywords: [], classifications: [] });
     setPage(0);
   };
+
+  // ‼️ Re-analyze logic calling the new API endpoint
+  const handleReanalyze = async () => {
+    if (!selectedImage) return;
+    setAnalyzing(true);
+    try {
+      const res = await fetch(`/faces/${selectedImage.id}/reanalyze`, {
+        method: 'POST'
+      });
+
+      if (!res.ok) throw new Error("Re-analysis failed");
+
+      const responseData = await res.json();
+      const updatedData = responseData.data;
+
+      // Update local state (both the selected image modal and the main list)
+      const updatedRecord = {
+        ...selectedImage,
+        ...updatedData
+      };
+
+      setSelectedImage(updatedRecord);
+      setFaces(prev => prev.map(f => f.id === selectedImage.id ? updatedRecord : f));
+
+      // Force reload the image in the list to reflect new crop if bbox changed?
+      // Since the /image endpoint is just /faces/{id}/image, it might be cached by browser.
+      // We can append a timestamp to force refresh if needed, but keeping it simple for now.
+
+    } catch (error) {
+      console.error("Re-analyze error", error);
+      alert("Failed to re-analyze image.");
+    } finally {
+      setAnalyzing(false);
+    }
+  }
 
   if (loading && faces.length === 0) {
     return (
@@ -515,6 +552,29 @@ export default function Gallery() {
                 <span className="text-xs bg-indigo-500/20 text-indigo-300 px-2 py-1 rounded border border-indigo-500/30">
                   {selectedImage.classification}
                 </span>
+              )}
+
+              <div className="w-px h-5 bg-slate-700 mx-2"></div>
+
+              <button
+                onClick={handleReanalyze}
+                disabled={analyzing}
+                className="flex items-center gap-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-full transition-colors disabled:opacity-50"
+              >
+                {analyzing ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <ScanSearch className="w-3 h-3" />
+                )}
+                Run Analysis
+              </button>
+
+              {/* ‼️ Added display of live stats if available */}
+              {selectedImage.yaw !== undefined && (
+                <div className="text-xs text-slate-400 flex flex-col leading-tight ml-2">
+                  <span>Y: {selectedImage.yaw?.toFixed(1)}°</span>
+                  <span>P: {selectedImage.pitch?.toFixed(1)}°</span>
+                </div>
               )}
             </div>
           </div>
