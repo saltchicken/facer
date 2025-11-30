@@ -1,6 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.concurrency import (
     run_in_threadpool,
@@ -13,6 +13,8 @@ import uvicorn
 import psycopg2
 import hashlib
 import os
+import zipfile
+import io
 from dotenv import load_dotenv
 from psycopg2 import Binary
 from facer.face_detector import FaceDetector
@@ -242,8 +244,8 @@ def get_filters():
 def get_faces(
     limit: int = 100,
     offset: int = 0,
-    keyword: list[str] = Query(None),  # ‼️ Changed from str to list[str]
-    classification: list[str] = Query(None),  # ‼️ Changed from str to list[str]
+    keyword: list[str] = Query(None),
+    classification: list[str] = Query(None),
 ):
     if not DB_URL:
         return []
@@ -257,7 +259,7 @@ def get_faces(
             conditions = []
             params = []
 
-            # ‼️ Updated logic for multiple Classifications (OR logic)
+            # Updated logic for multiple Classifications (OR logic)
             if classification:
                 # Check if we need to filter for NULLs separately from strings
                 has_none = "__NONE__" in classification
@@ -280,7 +282,7 @@ def get_faces(
                 if class_sub_conditions:
                     conditions.append(f"({' OR '.join(class_sub_conditions)})")
 
-            # ‼️ Updated logic for multiple Keywords (OR logic)
+            # Updated logic for multiple Keywords (OR logic)
             if keyword:
                 has_none = "__NONE__" in keyword
                 real_keywords = [k for k in keyword if k != "__NONE__"]
@@ -333,6 +335,104 @@ def get_faces(
     except Exception as e:
         print(f"DB Error: {e}")
         return []
+
+
+
+@app.get("/export")
+def export_faces(
+    keyword: list[str] = Query(None),
+    classification: list[str] = Query(None),
+):
+    if not DB_URL:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    try:
+        conn = psycopg2.connect(DB_URL)
+        # Use a dictionary cursor if possible, but standard is fine since we know column order
+        with conn.cursor() as cur:
+
+            query = """
+                SELECT id, image_name, original_image
+                FROM faces
+            """
+            conditions = []
+            params = []
+
+            # --- Replicate Filter Logic (Same as get_faces) ---
+            if classification:
+                has_none = "__NONE__" in classification
+                real_classes = [c for c in classification if c != "__NONE__"]
+                class_sub_conditions = []
+                if real_classes:
+                    class_sub_conditions.append("classification = ANY(%s)")
+                    params.append(real_classes)
+                if has_none:
+                    class_sub_conditions.append(
+                        "(classification IS NULL OR classification = '')"
+                    )
+                if class_sub_conditions:
+                    conditions.append(f"({' OR '.join(class_sub_conditions)})")
+
+            if keyword:
+                has_none = "__NONE__" in keyword
+                real_keywords = [k for k in keyword if k != "__NONE__"]
+                keyword_sub_conditions = []
+                if real_keywords:
+                    likes = []
+                    for k in real_keywords:
+                        likes.append("keywords ILIKE %s")
+                        params.append(f"%{k}%")
+                    keyword_sub_conditions.append(f"({' OR '.join(likes)})")
+                if has_none:
+                    keyword_sub_conditions.append("(keywords IS NULL OR keywords = '')")
+                if keyword_sub_conditions:
+                    conditions.append(f"({' OR '.join(keyword_sub_conditions)})")
+
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+
+            # Order by ID to keep it deterministic
+            query += " ORDER BY id ASC"
+
+            cur.execute(query, tuple(params))
+
+            # Use BytesIO to build zip in memory
+            zip_buffer = io.BytesIO()
+
+            with zipfile.ZipFile(
+                zip_buffer, "a", zipfile.ZIP_DEFLATED, False
+            ) as zip_file:
+                for row in cur:
+                    face_id = row[0]
+                    image_name = row[1]
+                    original_bytes = row[2]
+
+                    if not original_bytes:
+                        continue
+
+
+                    # Create a unique filename: originalname_id.ext
+                    path = Path(image_name)
+                    zip_filename = f"{path.stem}_{face_id}{path.suffix}"
+
+                    zip_file.writestr(zip_filename, original_bytes)
+
+        conn.close()
+
+        # Reset buffer position
+        zip_buffer.seek(0)
+
+        return StreamingResponse(
+            zip_buffer,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": "attachment; filename=exported_originals.zip"
+            },
+        )
+
+    except Exception as e:
+        print(f"Export Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/faces/{face_id}/image")

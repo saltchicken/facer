@@ -1,13 +1,13 @@
 import React, { useEffect, useState, useRef } from 'react';
 import {
   Loader2, Tag, User, Edit2, Check, X,
-  ChevronLeft, ChevronRight, RefreshCw, ChevronDown
+  ChevronLeft, ChevronRight, RefreshCw, ChevronDown, Download
 } from 'lucide-react';
 import type { FaceRecord } from './types';
 
 const ITEMS_PER_PAGE = 8;
 
-// ‼️ New Helper Component for Multi-Select Dropdown
+
 interface MultiSelectProps {
   label: string;
   icon: React.ElementType;
@@ -100,7 +100,7 @@ export default function Gallery() {
 
   const [selectedImage, setSelectedImage] = useState<FaceRecord | null>(null);
 
-  // ‼️ Changed state to Arrays for multi-select
+
   const [filters, setFilters] = useState<{
     keywords: string[];
     classifications: string[];
@@ -152,7 +152,7 @@ export default function Gallery() {
       params.append('limit', ITEMS_PER_PAGE.toString());
       params.append('offset', offset.toString());
 
-      // ‼️ Serialize arrays to multiple query params
+
       filters.keywords.forEach(k => params.append('keyword', k));
       filters.classifications.forEach(c => params.append('classification', c));
 
@@ -164,6 +164,16 @@ export default function Gallery() {
     } finally {
       setLoading(false);
     }
+  };
+
+
+  const handleExport = () => {
+    const params = new URLSearchParams();
+    filters.keywords.forEach(k => params.append('keyword', k));
+    filters.classifications.forEach(c => params.append('classification', c));
+
+    // Trigger download by setting window location to the export endpoint
+    window.location.href = `/export?${params.toString()}`;
   };
 
   const startEditing = (face: FaceRecord) => {
@@ -200,7 +210,7 @@ export default function Gallery() {
     }
   };
 
-  // ‼️ Logic for updating array state
+
   const handleClassificationChange = (newSelected: string[]) => {
     setFilters(prev => ({ ...prev, classifications: newSelected }));
     setPage(0);
@@ -239,7 +249,7 @@ export default function Gallery() {
 
         <div className="flex flex-wrap items-center gap-2">
 
-          {/* ‼️ Replaced select inputs with MultiSelect components */}
+
           <div className="flex items-center gap-2">
             <MultiSelect
               label="Class"
@@ -271,6 +281,15 @@ export default function Gallery() {
               <X className="w-5 h-5" />
             </button>
           )}
+
+
+          <button
+            onClick={handleExport}
+            className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition-colors"
+            title="Export Filtered Results"
+          >
+            <Download className="w-5 h-5" />
+          </button>
 
           <button
             onClick={() => { fetchFaces(); fetchFilterOptions(); }}
