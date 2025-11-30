@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
@@ -240,7 +240,10 @@ def get_filters():
 
 @app.get("/faces")
 def get_faces(
-    limit: int = 100, offset: int = 0, keyword: str = None, classification: str = None
+    limit: int = 100,
+    offset: int = 0,
+    keyword: list[str] = Query(None),  # ‼️ Changed from str to list[str]
+    classification: list[str] = Query(None),  # ‼️ Changed from str to list[str]
 ):
     if not DB_URL:
         return []
@@ -254,20 +257,50 @@ def get_faces(
             conditions = []
             params = []
 
+            # ‼️ Updated logic for multiple Classifications (OR logic)
             if classification:
-                if classification == "__NONE__":
-                    conditions.append("(classification IS NULL OR classification = '')")
-                else:
-                    conditions.append("classification = %s")
-                    params.append(classification)
+                # Check if we need to filter for NULLs separately from strings
+                has_none = "__NONE__" in classification
+                real_classes = [c for c in classification if c != "__NONE__"]
 
+                class_sub_conditions = []
+
+                # Handle standard string matches
+                if real_classes:
+                    # Postgres ANY syntax for arrays
+                    class_sub_conditions.append("classification = ANY(%s)")
+                    params.append(real_classes)
+
+                # Handle Unclassified/NULL matches
+                if has_none:
+                    class_sub_conditions.append(
+                        "(classification IS NULL OR classification = '')"
+                    )
+
+                if class_sub_conditions:
+                    conditions.append(f"({' OR '.join(class_sub_conditions)})")
+
+            # ‼️ Updated logic for multiple Keywords (OR logic)
             if keyword:
-                if keyword == "__NONE__":
-                    conditions.append("(keywords IS NULL OR keywords = '')")
-                else:
-                    # Use ILIKE for case-insensitive partial matching on the keywords string
-                    conditions.append("keywords ILIKE %s")
-                    params.append(f"%{keyword}%")
+                has_none = "__NONE__" in keyword
+                real_keywords = [k for k in keyword if k != "__NONE__"]
+
+                keyword_sub_conditions = []
+
+                if real_keywords:
+                    # Construct multiple ILIKE statements OR'd together
+                    # We can't use ANY with ILIKE easily without UNNEST, so explicit OR is safer/simpler here
+                    likes = []
+                    for k in real_keywords:
+                        likes.append("keywords ILIKE %s")
+                        params.append(f"%{k}%")
+                    keyword_sub_conditions.append(f"({' OR '.join(likes)})")
+
+                if has_none:
+                    keyword_sub_conditions.append("(keywords IS NULL OR keywords = '')")
+
+                if keyword_sub_conditions:
+                    conditions.append(f"({' OR '.join(keyword_sub_conditions)})")
 
             if conditions:
                 query += " WHERE " + " AND ".join(conditions)
@@ -345,7 +378,6 @@ def get_face_image(face_id: int):
     except Exception as e:
         print(f"DB Error: {e}")
         return Response(status_code=500)
-
 
 
 @app.get("/faces/{face_id}/full_image")

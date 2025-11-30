@@ -1,11 +1,96 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Loader2, Tag, User, Edit2, Check, X,
-  ChevronLeft, ChevronRight, Filter, RefreshCw
+  ChevronLeft, ChevronRight, RefreshCw, ChevronDown
 } from 'lucide-react';
 import type { FaceRecord } from './types';
 
 const ITEMS_PER_PAGE = 8;
+
+// ‼️ New Helper Component for Multi-Select Dropdown
+interface MultiSelectProps {
+  label: string;
+  icon: React.ElementType;
+  options: string[];
+  selected: string[];
+  onChange: (selected: string[]) => void;
+  noneLabel?: string;
+}
+
+function MultiSelect({ label, icon: Icon, options, selected, onChange, noneLabel = "None" }: MultiSelectProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Close when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const toggleOption = (opt: string) => {
+    if (selected.includes(opt)) {
+      onChange(selected.filter(s => s !== opt));
+    } else {
+      onChange([...selected, opt]);
+    }
+  };
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-all ${selected.length > 0
+          ? 'bg-indigo-600/20 border-indigo-500 text-indigo-200'
+          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+          }`}
+      >
+        <Icon className="w-4 h-4" />
+        <span className="max-w-[100px] truncate">
+          {selected.length === 0 ? label : `${selected.length} selected`}
+        </span>
+        <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute top-full left-0 mt-2 w-56 max-h-80 overflow-y-auto bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-50 p-1 flex flex-col gap-0.5">
+          {/* Option for NULL/None */}
+          <label className="flex items-center gap-2 px-3 py-2 hover:bg-slate-800 rounded cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="rounded border-slate-600 bg-slate-950 text-indigo-500 focus:ring-offset-slate-900"
+              checked={selected.includes("__NONE__")}
+              onChange={() => toggleOption("__NONE__")}
+            />
+            <span className="text-sm text-slate-300 italic">{noneLabel}</span>
+          </label>
+
+          {options.length > 0 && <div className="h-px bg-slate-800 my-1" />}
+
+          {options.map((opt) => (
+            <label key={opt} className="flex items-center gap-2 px-3 py-2 hover:bg-slate-800 rounded cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="rounded border-slate-600 bg-slate-950 text-indigo-500 focus:ring-offset-slate-900"
+                checked={selected.includes(opt)}
+                onChange={() => toggleOption(opt)}
+              />
+              <span className="text-sm text-slate-200">{opt}</span>
+            </label>
+          ))}
+          {options.length === 0 && (
+            <div className="px-3 py-2 text-xs text-slate-500 text-center">No options available</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 export default function Gallery() {
   const [faces, setFaces] = useState<FaceRecord[]>([]);
@@ -15,10 +100,11 @@ export default function Gallery() {
 
   const [selectedImage, setSelectedImage] = useState<FaceRecord | null>(null);
 
-  const [filters, setFilters] = useState({
-    keyword: '',
-    classification: ''
-  });
+  // ‼️ Changed state to Arrays for multi-select
+  const [filters, setFilters] = useState<{
+    keywords: string[];
+    classifications: string[];
+  }>({ keywords: [], classifications: [] });
 
 
   const [filterOptions, setFilterOptions] = useState<{
@@ -66,8 +152,9 @@ export default function Gallery() {
       params.append('limit', ITEMS_PER_PAGE.toString());
       params.append('offset', offset.toString());
 
-      if (filters.keyword) params.append('keyword', filters.keyword);
-      if (filters.classification) params.append('classification', filters.classification);
+      // ‼️ Serialize arrays to multiple query params
+      filters.keywords.forEach(k => params.append('keyword', k));
+      filters.classifications.forEach(c => params.append('classification', c));
 
       const res = await fetch(`/faces?${params.toString()}`);
       const data = await res.json();
@@ -113,15 +200,20 @@ export default function Gallery() {
     }
   };
 
+  // ‼️ Logic for updating array state
+  const handleClassificationChange = (newSelected: string[]) => {
+    setFilters(prev => ({ ...prev, classifications: newSelected }));
+    setPage(0);
+  }
 
-  const handleFilterChange = (key: 'keyword' | 'classification', value: string) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
-    setPage(0); // Reset to first page on filter change
-  };
+  const handleKeywordChange = (newSelected: string[]) => {
+    setFilters(prev => ({ ...prev, keywords: newSelected }));
+    setPage(0);
+  }
 
 
   const clearFilters = () => {
-    setFilters({ keyword: '', classification: '' });
+    setFilters({ keywords: [], classifications: [] });
     setPage(0);
   };
 
@@ -146,42 +238,31 @@ export default function Gallery() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 bg-slate-950 px-3 py-2 rounded-lg border border-slate-800">
-            <Filter className="w-4 h-4 text-indigo-400" />
 
-            {/* Classification Filter */}
-            <select
-              value={filters.classification}
-              onChange={(e) => handleFilterChange('classification', e.target.value)}
-              className="bg-transparent text-sm text-slate-300 focus:outline-none w-32"
-            >
-              <option value="">All Classes</option>
+          {/* ‼️ Replaced select inputs with MultiSelect components */}
+          <div className="flex items-center gap-2">
+            <MultiSelect
+              label="Class"
+              icon={User}
+              options={filterOptions.classifications}
+              selected={filters.classifications}
+              onChange={handleClassificationChange}
+              noneLabel="Unclassified"
+            />
 
-              <option value="__NONE__">Unclassified</option>
-              {filterOptions.classifications.map((c, i) => (
-                <option key={i} value={c}>{c}</option>
-              ))}
-            </select>
+            <div className="w-px h-6 bg-slate-800 mx-1"></div>
 
-            <div className="w-px h-4 bg-slate-800 mx-2"></div>
-
-            {/* Keyword Filter */}
-            <Tag className="w-4 h-4 text-indigo-400" />
-            <select
-              value={filters.keyword}
-              onChange={(e) => handleFilterChange('keyword', e.target.value)}
-              className="bg-transparent text-sm text-slate-300 focus:outline-none w-32"
-            >
-              <option value="">All Keywords</option>
-
-              <option value="__NONE__">No Keywords</option>
-              {filterOptions.keywords.map((k, i) => (
-                <option key={i} value={k}>{k}</option>
-              ))}
-            </select>
+            <MultiSelect
+              label="Keywords"
+              icon={Tag}
+              options={filterOptions.keywords}
+              selected={filters.keywords}
+              onChange={handleKeywordChange}
+              noneLabel="No Keywords"
+            />
           </div>
 
-          {(filters.classification || filters.keyword) && (
+          {(filters.classifications.length > 0 || filters.keywords.length > 0) && (
             <button
               onClick={clearFilters}
               className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
