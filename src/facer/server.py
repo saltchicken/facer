@@ -288,7 +288,7 @@ def update_face_record(face_id: int, update: FaceUpdate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ‼️ New Endpoint: Re-analyze an existing face in the DB
+
 @app.post("/faces/{face_id}/reanalyze")
 async def reanalyze_face(face_id: int):
     if not DB_URL:
@@ -299,7 +299,7 @@ async def reanalyze_face(face_id: int):
 
         # 1. Fetch original image and current bbox
         with conn.cursor() as cur:
-            # ‼️ Added classification to SELECT
+
             cur.execute(
                 "SELECT original_image, bbox, classification FROM faces WHERE id = %s",
                 (face_id,),
@@ -311,7 +311,7 @@ async def reanalyze_face(face_id: int):
 
             original_bytes = row[0]
             current_bbox = row[1]  # [x1, y1, x2, y2]
-            current_classification = row[2]  # ‼️ Capture current classification
+            current_classification = row[2]
 
         nparr = np.frombuffer(original_bytes, np.uint8)
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -358,12 +358,12 @@ async def reanalyze_face(face_id: int):
         label = "unknown"
 
         if direction_info:
-            # ‼️ Explicit float cast to avoid numpy types in DB
+
             yaw = float(direction_info.yaw)
             pitch = float(direction_info.pitch)
             label = str(direction_info)
 
-        # ‼️ Explicit bool cast
+
         is_valid = bool(
             direction_info is not None
             and abs(yaw) < YAW_THRESHOLD
@@ -379,7 +379,7 @@ async def reanalyze_face(face_id: int):
             if emb_array.size > 0:
                 embedding_val = str(emb_array.tolist())
 
-                # ‼️ Check database for match only if current classification is blank
+
                 if not current_classification:
                     identified_classification = identify_face_from_db(
                         emb_array.tolist()
@@ -405,7 +405,7 @@ async def reanalyze_face(face_id: int):
                     face_id,
                 ]
 
-                # ‼️ Dynamically add classification update if we found a match
+
                 if identified_classification:
                     update_query = update_query.replace(
                         "WHERE", ", classification = %s WHERE"
@@ -417,7 +417,7 @@ async def reanalyze_face(face_id: int):
 
         conn.close()
 
-        # ‼️ Log the results of the re-analysis
+
         print(f"✅ Re-analyzed Face ID {face_id}:")
         print(f"   -> Valid: {is_valid}")
         print(f"   -> Yaw: {yaw:.2f}, Pitch: {pitch:.2f}")
@@ -436,7 +436,7 @@ async def reanalyze_face(face_id: int):
                 "is_valid_pose": is_valid,
                 "direction": label,
                 "classification": identified_classification
-                or current_classification,  # ‼️ Return updated class
+                or current_classification,
             },
         }
 

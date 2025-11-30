@@ -92,7 +92,7 @@ function MultiSelect({ label, icon: Icon, options, selected, onChange, noneLabel
   );
 }
 
-// ‼️ Removed Prop Interface since we now use API
+
 export default function Gallery() {
   const [faces, setFaces] = useState<FaceRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,7 +101,7 @@ export default function Gallery() {
 
 
   const [selectedImage, setSelectedImage] = useState<FaceRecord | null>(null);
-  // ‼️ Loading state for re-analysis
+
   const [analyzing, setAnalyzing] = useState(false);
 
 
@@ -259,7 +259,7 @@ export default function Gallery() {
     setPage(0);
   };
 
-  // ‼️ Re-analyze logic calling the new API endpoint
+
   const handleReanalyze = async () => {
     if (!selectedImage) return;
     setAnalyzing(true);
@@ -569,7 +569,7 @@ export default function Gallery() {
                 Run Analysis
               </button>
 
-              {/* ‼️ Added display of live stats if available */}
+
               {selectedImage.yaw !== undefined && (
                 <div className="text-xs text-slate-400 flex flex-col leading-tight ml-2">
                   <span>Y: {selectedImage.yaw?.toFixed(1)}°</span>
