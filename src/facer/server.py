@@ -15,6 +15,7 @@ import hashlib
 import os
 import zipfile
 import io
+from typing import List
 from dotenv import load_dotenv
 from psycopg2 import Binary
 from facer.face_detector import FaceDetector
@@ -590,7 +591,9 @@ def process_analysis_sync(
     if save_flag:
         faces_to_save = []
 
-        if len(results) == 1:
+        if (
+            len(results) >= 1
+        ):
             faces_to_save = results
         else:
             # Contains no embedding, empty bbox, null pose, invalid status.
@@ -625,63 +628,89 @@ def process_analysis_sync(
     return results
 
 
-@app.post("/analyze", response_model=AnalysisResponse)
+@app.post("/analyze", response_model=List[AnalysisResponse])
 async def analyze_image(
-    file: UploadFile = File(...),
+    files: List[UploadFile] = File(...),
     description: str = Form(None),
     keywords: str = Form(None),
     classification: str = Form(None),
     save: bool = Form(False),
 ):
-    # 1. Read Image
-    try:
-        contents = await file.read()
+    all_responses = []
 
-        file_hash = hashlib.sha256(contents).hexdigest()
+    for file in files:
+        # 1. Read Image
+        try:
+            contents = await file.read()
 
-        if save:
-            # but optimally could be awaited if converted to async.
-            # For now, it's fast enough to leave or wrap.
-            existing_name = check_image_exists(file_hash)
-            if existing_name:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Duplicate Image: This image is already in the database as '{existing_name}'.",
+            file_hash = hashlib.sha256(contents).hexdigest()
+            error_msg = None
+
+            if save:
+                # Check duplicate per file
+                existing_name = check_image_exists(file_hash)
+                if existing_name:
+
+                    error_msg = f"Duplicate: Already exists as '{existing_name}'."
+
+            if error_msg:
+                all_responses.append(
+                    AnalysisResponse(
+                        filename=file.filename,
+                        face_count=0,
+                        results=[],
+                        error=error_msg,
+                    )
                 )
+                continue
 
-        nparr = np.frombuffer(contents, np.uint8)
+            nparr = np.frombuffer(contents, np.uint8)
+            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        # but usually negligible compared to ML models.
-        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if image is None:
+                all_responses.append(
+                    AnalysisResponse(
+                        filename=file.filename,
+                        face_count=0,
+                        results=[],
+                        error="Could not decode image",
+                    )
+                )
+                continue
 
-        if image is None:
-            raise ValueError("Could not decode")
+            height, width = image.shape[:2]
 
-        height, width = image.shape[:2]
+            # Run analysis
+            results = await run_in_threadpool(
+                process_analysis_sync,
+                image,
+                save,
+                file.filename,
+                description,
+                keywords,
+                classification,
+                file_hash,
+                contents,
+                width,
+                height,
+            )
 
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+            all_responses.append(
+                AnalysisResponse(
+                    filename=file.filename, face_count=len(results), results=results
+                )
+            )
 
-    # This prevents the async event loop from blocking while YOLO/MediaPipe run.
-    results = await run_in_threadpool(
-        process_analysis_sync,
-        image,
-        save,
-        file.filename,
-        description,
-        keywords,
-        classification,
-        file_hash,
-        contents,
-        width,
-        height,
-    )
+        except Exception as e:
 
-    return AnalysisResponse(
-        filename=file.filename, face_count=len(results), results=results
-    )
+            print(f"Error processing {file.filename}: {e}")
+            all_responses.append(
+                AnalysisResponse(
+                    filename=file.filename, face_count=0, results=[], error=str(e)
+                )
+            )
+
+    return all_responses
 
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "facer-ui" / "dist"

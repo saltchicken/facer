@@ -55,3 +55,4 @@ class AnalysisResponse(BaseModel):
     filename: str
     face_count: int
     results: List[FaceData]
+    error: Optional[str] = None
