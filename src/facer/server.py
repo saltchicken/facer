@@ -194,7 +194,28 @@ def save_to_db(
         conn = psycopg2.connect(DB_URL)
         with conn:
             with conn.cursor() as cur:
-                for face_data in faces_data:
+
+                # If multiple faces are detected, we select the "best" one to represent the image entry
+                # to avoid duplicating the image blob in the database.
+                faces_to_process = []
+                if faces_data:
+                    # Helper to calculate score: (is_valid, area)
+                    def get_face_score(f):
+                        is_valid = 1 if f.is_valid_pose else 0
+                        area = 0.0
+                        # Check if bbox is valid [x1, y1, x2, y2]
+                        if f.bbox and len(f.bbox) == 4:
+                            w = f.bbox[2] - f.bbox[0]
+                            h = f.bbox[3] - f.bbox[1]
+                            area = w * h
+                        return (is_valid, area)
+
+                    # Select the single best face
+                    best_face = max(faces_data, key=get_face_score)
+                    faces_to_process = [best_face]
+
+
+                for face_data in faces_to_process:
                     embedding_val = (
                         str(face_data.embedding) if face_data.embedding else None
                     )
@@ -230,7 +251,7 @@ def save_to_db(
                             height,
                         ),
                     )
-        print(f"✅ Saved {len(faces_data)} faces to DB.")
+        print(f"✅ Saved {len(faces_to_process)} faces to DB.")
         conn.close()
     except Exception as e:
         print(f"❌ Database Error: {e}")
@@ -288,7 +309,6 @@ def update_face_record(face_id: int, update: FaceUpdate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-
 @app.post("/faces/{face_id}/reanalyze")
 async def reanalyze_face(face_id: int):
     if not DB_URL:
@@ -299,7 +319,6 @@ async def reanalyze_face(face_id: int):
 
         # 1. Fetch original image and current bbox
         with conn.cursor() as cur:
-
             cur.execute(
                 "SELECT original_image, bbox, classification FROM faces WHERE id = %s",
                 (face_id,),
@@ -358,11 +377,9 @@ async def reanalyze_face(face_id: int):
         label = "unknown"
 
         if direction_info:
-
             yaw = float(direction_info.yaw)
             pitch = float(direction_info.pitch)
             label = str(direction_info)
-
 
         is_valid = bool(
             direction_info is not None
@@ -378,7 +395,6 @@ async def reanalyze_face(face_id: int):
             emb_array = await run_in_threadpool(embedder.get_embedding, target_face)
             if emb_array.size > 0:
                 embedding_val = str(emb_array.tolist())
-
 
                 if not current_classification:
                     identified_classification = identify_face_from_db(
@@ -405,7 +421,6 @@ async def reanalyze_face(face_id: int):
                     face_id,
                 ]
 
-
                 if identified_classification:
                     update_query = update_query.replace(
                         "WHERE", ", classification = %s WHERE"
@@ -416,7 +431,6 @@ async def reanalyze_face(face_id: int):
                 cur.execute(update_query, tuple(params))
 
         conn.close()
-
 
         print(f"✅ Re-analyzed Face ID {face_id}:")
         print(f"   -> Valid: {is_valid}")
@@ -435,8 +449,7 @@ async def reanalyze_face(face_id: int):
                 "pitch": pitch,
                 "is_valid_pose": is_valid,
                 "direction": label,
-                "classification": identified_classification
-                or current_classification,
+                "classification": identified_classification or current_classification,
             },
         }
 
