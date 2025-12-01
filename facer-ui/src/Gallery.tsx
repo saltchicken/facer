@@ -8,7 +8,6 @@ import type { FaceRecord } from './types';
 
 const ITEMS_PER_PAGE = 8;
 
-
 interface MultiSelectProps {
   label: string;
   icon: React.ElementType;
@@ -22,7 +21,6 @@ function MultiSelect({ label, icon: Icon, options, selected, onChange, noneLabel
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Close when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
@@ -59,7 +57,6 @@ function MultiSelect({ label, icon: Icon, options, selected, onChange, noneLabel
 
       {isOpen && (
         <div className="absolute top-full left-0 mt-2 w-56 max-h-80 overflow-y-auto bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-50 p-1 flex flex-col gap-0.5">
-          {/* Option for NULL/None */}
           <label className="flex items-center gap-2 px-3 py-2 hover:bg-slate-800 rounded cursor-pointer select-none">
             <input
               type="checkbox"
@@ -98,18 +95,13 @@ export default function Gallery() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
   const [hasNextPage, setHasNextPage] = useState(false);
-
-
   const [selectedImage, setSelectedImage] = useState<FaceRecord | null>(null);
-
   const [analyzing, setAnalyzing] = useState(false);
-
 
   const [filters, setFilters] = useState<{
     keywords: string[];
     classifications: string[];
   }>({ keywords: [], classifications: [] });
-
 
   const [filterOptions, setFilterOptions] = useState<{
     keywords: string[];
@@ -124,15 +116,19 @@ export default function Gallery() {
   }>({ description: '', classification: '', keywords: '' });
 
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     fetchFilterOptions();
   }, []);
 
-
   useEffect(() => {
     fetchFaces();
-  }, [page, filters]);
 
+    return () => {
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+    };
+  }, [page, filters]);
 
   const fetchFilterOptions = async () => {
     try {
@@ -147,46 +143,53 @@ export default function Gallery() {
   };
 
   const fetchFaces = async () => {
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
     try {
       const offset = page * ITEMS_PER_PAGE;
-
-
       const params = new URLSearchParams();
 
       params.append('limit', (ITEMS_PER_PAGE + 1).toString());
       params.append('offset', offset.toString());
 
-
       filters.keywords.forEach(k => params.append('keyword', k));
       filters.classifications.forEach(c => params.append('classification', c));
 
-      const res = await fetch(`/faces?${params.toString()}`);
-      const data = await res.json();
 
+      const res = await fetch(`/faces?${params.toString()}`, { signal: controller.signal });
+      const data = await res.json();
 
       if (data.length > ITEMS_PER_PAGE) {
         setHasNextPage(true);
-
         setFaces(data.slice(0, ITEMS_PER_PAGE));
       } else {
         setHasNextPage(false);
         setFaces(data);
       }
-    } catch (err) {
-      console.error("Failed to load faces", err);
+    } catch (err: any) {
+
+      if (err.name !== 'AbortError') {
+        console.error("Failed to load faces", err);
+      }
     } finally {
-      setLoading(false);
+      // Only turn off loading if this is the active request
+      if (abortControllerRef.current === controller) {
+        setLoading(false);
+      }
     }
   };
-
 
   const handleExport = () => {
     const params = new URLSearchParams();
     filters.keywords.forEach(k => params.append('keyword', k));
     filters.classifications.forEach(c => params.append('classification', c));
-
-    // Trigger download by setting window location to the export endpoint
     window.location.href = `/export?${params.toString()}`;
   };
 
@@ -214,7 +217,6 @@ export default function Gallery() {
       if (res.ok) {
         setFaces(faces.map(f => f.id === id ? { ...f, ...editForm } : f));
         setEditingId(null);
-        // Refresh filter options just in case new tags were added
         fetchFilterOptions();
       } else {
         console.error("Failed to save changes");
@@ -232,8 +234,8 @@ export default function Gallery() {
       const res = await fetch(`/faces/${id}`, { method: 'DELETE' });
       if (res.ok) {
         setFaces(faces.filter(f => f.id !== id));
-        if (selectedImage?.id === id) setSelectedImage(null); // Close modal if open
-        if (editingId === id) setEditingId(null); // Exit edit mode
+        if (selectedImage?.id === id) setSelectedImage(null);
+        if (editingId === id) setEditingId(null);
       } else {
         console.error("Failed to delete");
       }
@@ -273,7 +275,6 @@ export default function Gallery() {
       const responseData = await res.json();
       const updatedData = responseData.data;
 
-      // Update local state (both the selected image modal and the main list)
       const updatedRecord = {
         ...selectedImage,
         ...updatedData
@@ -281,10 +282,6 @@ export default function Gallery() {
 
       setSelectedImage(updatedRecord);
       setFaces(prev => prev.map(f => f.id === selectedImage.id ? updatedRecord : f));
-
-      // Force reload the image in the list to reflect new crop if bbox changed?
-      // Since the /image endpoint is just /faces/{id}/image, it might be cached by browser.
-      // We can append a timestamp to force refresh if needed, but keeping it simple for now.
 
     } catch (error) {
       console.error("Re-analyze error", error);
@@ -304,8 +301,6 @@ export default function Gallery() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-12">
-
-
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/50 p-4 rounded-xl border border-slate-800">
         <div>
           <h2 className="text-xl font-semibold text-slate-200">Database Records</h2>
@@ -315,8 +310,6 @@ export default function Gallery() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-
-
           <div className="flex items-center gap-2">
             <MultiSelect
               label="Class"
@@ -349,7 +342,6 @@ export default function Gallery() {
             </button>
           )}
 
-
           <button
             onClick={handleExport}
             className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition-colors"
@@ -381,7 +373,6 @@ export default function Gallery() {
             key={face.id}
             className="group bg-slate-900 border border-slate-800 rounded-xl overflow-hidden hover:border-indigo-500/50 transition-all hover:shadow-xl hover:shadow-indigo-500/10"
           >
-            {/* Image Container */}
             <div className="aspect-square bg-slate-950 relative overflow-hidden">
               <img
                 src={`/faces/${face.id}/image`}
@@ -402,10 +393,8 @@ export default function Gallery() {
               </div>
             </div>
 
-            {/* Details */}
             <div className="p-4 space-y-3">
               {editingId === face.id ? (
-                // Edit Mode
                 <div className="space-y-2 animate-in fade-in">
                   <input
                     value={editForm.description}
@@ -429,8 +418,6 @@ export default function Gallery() {
                     />
                   </div>
                   <div className="flex gap-2 justify-between mt-2 pt-2 border-t border-slate-800">
-
-
                     <button
                       onClick={() => deleteFace(face.id)}
                       className="p-1.5 bg-red-900/30 text-red-400 rounded hover:bg-red-900/50 transition-colors"
@@ -458,7 +445,6 @@ export default function Gallery() {
                   </div>
                 </div>
               ) : (
-                // Display Mode
                 <>
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="font-medium text-slate-200 truncate" title={face.description || face.image_name}>
@@ -483,7 +469,6 @@ export default function Gallery() {
                       <Tag className="w-3 h-3" />
                       <span className="truncate">{face.keywords || 'No keywords'}</span>
                     </div>
-
 
                     <div className="flex items-center gap-2">
                       <Maximize className="w-3 h-3" />
@@ -522,7 +507,6 @@ export default function Gallery() {
           <ChevronRight className="w-4 h-4" />
         </button>
       </div>
-
 
       {selectedImage && (
         <div
