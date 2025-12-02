@@ -48,7 +48,6 @@ async def lifespan(app: FastAPI):
     direction_finder = FaceDirection()
     embedder = FaceEmbedder()
 
-
     try:
         db = Database.get_instance()
         print("Database connection pool initialized.")
@@ -64,7 +63,6 @@ async def lifespan(app: FastAPI):
     detector = None
     direction_finder = None
     embedder = None
-
 
     Database.close_pool()
 
@@ -88,12 +86,10 @@ app.add_middleware(
 )
 
 
-
 def check_image_exists(file_hash: str):
     if not db:
         return None
     try:
-
         with db.get_cursor() as cur:
             cur.execute(
                 "SELECT image_name FROM faces WHERE source_image_hash = %s LIMIT 1",
@@ -107,41 +103,64 @@ def check_image_exists(file_hash: str):
 
 
 def identify_face_from_db(target_embedding: list) -> str:
+    """
+    Identifies a face using optimized Matrix Multiplication (Vectorization).
+    """
     if not db or not target_embedding:
         return None
 
     try:
         target_arr = np.array(target_embedding)
-        best_match_name = None
-        highest_similarity = MATCH_THRESHOLD
+        norm_target = np.linalg.norm(target_arr)
 
+        if norm_target == 0:
+            return None
+
+        target_arr = target_arr / norm_target
+
+        best_match_name = None
 
         with db.get_cursor() as cur:
             cur.execute(
-                "SELECT classification, embedding, image_name FROM faces WHERE classification IS NOT NULL AND classification != '' AND embedding IS NOT NULL"
+                "SELECT classification, embedding FROM faces WHERE classification IS NOT NULL AND classification != '' AND embedding IS NOT NULL"
             )
             rows = cur.fetchall()
 
-            for classification, embedding_str, image_name in rows:
+            if not rows:
+                return None
+
+            known_embeddings = []
+            known_names = []
+
+            for classification, embedding_str in rows:
                 try:
-                    db_emb_list = ast.literal_eval(embedding_str)
-                    db_emb_arr = np.array(db_emb_list)
-
-                    dot_product = np.dot(target_arr, db_emb_arr)
-                    norm_a = np.linalg.norm(target_arr)
-                    norm_b = np.linalg.norm(db_emb_arr)
-
-                    if norm_a == 0 or norm_b == 0:
-                        continue
-
-                    similarity = dot_product / (norm_a * norm_b)
-
-                    if similarity > highest_similarity:
-                        highest_similarity = similarity
-                        best_match_name = classification
-
+                    # ast.literal_eval is safer than eval
+                    emb_list = ast.literal_eval(embedding_str)
+                    known_embeddings.append(emb_list)
+                    known_names.append(classification)
                 except Exception:
                     continue
+
+            if not known_embeddings:
+                return None
+
+            known_matrix = np.array(known_embeddings)
+
+            # axis=1 calculates norm across columns for each row
+            norms = np.linalg.norm(known_matrix, axis=1, keepdims=True)
+
+            norms[norms == 0] = 1
+
+            normalized_matrix = known_matrix / norms
+
+            # Shape: (N, 512) dot (512,) -> (N,)
+            similarities = np.dot(normalized_matrix, target_arr)
+
+            best_idx = np.argmax(similarities)
+            best_score = similarities[best_idx]
+
+            if best_score > MATCH_THRESHOLD:
+                best_match_name = known_names[best_idx]
 
         return best_match_name
     except Exception as e:
@@ -163,7 +182,6 @@ def save_to_db(
     if not db:
         return
     try:
-
         with db.get_cursor() as cur:
             faces_to_process = []
             if faces_data:
@@ -334,7 +352,6 @@ async def reanalyze_face(face_id: int):
             if emb_array.size > 0:
                 embedding_val = str(emb_array.tolist())
                 if not current_classification:
-
                     # identify_face_from_db is synchronous DB, so it's fine to call it directly
                     # as it's now using the pool, but better to wrap in run_in_threadpool if heavy.
                     # Given it's DB IO + Math, let's leave it direct for simplicity with the new pool.
@@ -446,7 +463,6 @@ def get_faces(
             FROM faces
         """
         params = []
-
 
         query, params = db.build_filter_query(query, params, keyword, classification)
 
