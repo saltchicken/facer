@@ -16,7 +16,7 @@ export interface AnalysisResponse {
   filename: string;
   face_count: number;
   results: FaceData[];
-  error?: string | null; // ‼️ Added error field
+  error?: string | null;
 }
 
 export interface FaceRecord {
