@@ -2,11 +2,13 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   Loader2, Tag, User, Edit2, Check, X,
   ChevronLeft, ChevronRight, RefreshCw, ChevronDown, Download,
-  Trash2, Maximize, ScanSearch
+  Trash2, ScanSearch
 } from 'lucide-react';
 import type { FaceRecord } from './types';
+import { useDebounce } from './hooks/useDebounce';
 
-const ITEMS_PER_PAGE = 8;
+
+const ITEMS_PER_PAGE = 24;
 
 interface MultiSelectProps {
   label: string;
@@ -103,6 +105,9 @@ export default function Gallery() {
     classifications: string[];
   }>({ keywords: [], classifications: [] });
 
+
+  const debouncedFilters = useDebounce(filters, 500);
+
   const [filterOptions, setFilterOptions] = useState<{
     keywords: string[];
     classifications: string[];
@@ -128,7 +133,26 @@ export default function Gallery() {
     return () => {
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
-  }, [page, filters]);
+
+  }, [page, debouncedFilters]);
+
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if editing text
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
+
+      if (selectedImage) {
+        if (e.key === 'Escape') setSelectedImage(null);
+      } else {
+        if (e.key === 'ArrowRight' && hasNextPage) setPage(p => p + 1);
+        if (e.key === 'ArrowLeft' && page > 0) setPage(p => Math.max(0, p - 1));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [page, hasNextPage, selectedImage]);
+
 
   const fetchFilterOptions = async () => {
     try {
@@ -159,8 +183,9 @@ export default function Gallery() {
       params.append('limit', (ITEMS_PER_PAGE + 1).toString());
       params.append('offset', offset.toString());
 
-      filters.keywords.forEach(k => params.append('keyword', k));
-      filters.classifications.forEach(c => params.append('classification', c));
+
+      debouncedFilters.keywords.forEach(k => params.append('keyword', k));
+      debouncedFilters.classifications.forEach(c => params.append('classification', c));
 
 
       const res = await fetch(`/faces?${params.toString()}`, { signal: controller.signal });
@@ -360,7 +385,7 @@ export default function Gallery() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-6">
         {faces.length === 0 && !loading && (
           <div className="col-span-full py-12 text-center text-slate-500 bg-slate-900/50 rounded-xl border border-dashed border-slate-800">
             <p>No records found matching your filters.</p>
@@ -393,7 +418,7 @@ export default function Gallery() {
               </div>
             </div>
 
-            <div className="p-4 space-y-3">
+            <div className="p-3 space-y-2">
               {editingId === face.id ? (
                 <div className="space-y-2 animate-in fade-in">
                   <input
@@ -447,7 +472,7 @@ export default function Gallery() {
               ) : (
                 <>
                   <div className="flex items-start justify-between gap-2">
-                    <h3 className="font-medium text-slate-200 truncate" title={face.description || face.image_name}>
+                    <h3 className="font-medium text-slate-200 truncate text-sm" title={face.description || face.image_name}>
                       {face.description || face.image_name}
                     </h3>
                     <button
@@ -459,7 +484,7 @@ export default function Gallery() {
                     </button>
                   </div>
 
-                  <div className="space-y-2 text-xs text-slate-400">
+                  <div className="space-y-1 text-xs text-slate-400">
                     <div className="flex items-center gap-2">
                       <User className="w-3 h-3" />
                       <span className="truncate">{face.classification || 'Unclassified'}</span>
@@ -468,13 +493,6 @@ export default function Gallery() {
                     <div className="flex items-center gap-2">
                       <Tag className="w-3 h-3" />
                       <span className="truncate">{face.keywords || 'No keywords'}</span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <Maximize className="w-3 h-3" />
-                      <span className="truncate">
-                        {face.width && face.height ? `${face.width} x ${face.height} px` : 'Unknown Size'}
-                      </span>
                     </div>
                   </div>
                 </>

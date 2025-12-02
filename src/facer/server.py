@@ -12,8 +12,9 @@ import hashlib
 import zipfile
 import io
 import ast
-from typing import List
+from typing import List, Dict, Tuple
 from psycopg2 import Binary
+import time
 
 
 from facer.db import Database
@@ -39,6 +40,58 @@ PITCH_THRESHOLD = 25.0
 MATCH_THRESHOLD = 0.4
 
 
+
+class EmbeddingCache:
+    def __init__(self):
+        self.known_embeddings: List[np.ndarray] = []
+        self.known_names: List[str] = []
+        self.last_updated = 0.0
+
+    def load_from_db(self, db_instance):
+        """Reloads the cache from Postgres."""
+        if not db_instance:
+            return
+        try:
+            print("🔄 Refreshing Embedding Cache...")
+            start_t = time.time()
+            with db_instance.get_cursor() as cur:
+
+                cur.execute(
+                    "SELECT classification, embedding FROM faces WHERE classification IS NOT NULL AND classification != '' AND embedding IS NOT NULL"
+                )
+                rows = cur.fetchall()
+
+            new_embeddings = []
+            new_names = []
+
+            for classification, embedding_str in rows:
+                try:
+
+                    emb_list = ast.literal_eval(embedding_str)
+                    new_embeddings.append(np.array(emb_list, dtype=np.float32))
+                    new_names.append(classification)
+                except Exception:
+                    continue
+
+            self.known_embeddings = new_embeddings
+            self.known_names = new_names
+            self.last_updated = time.time()
+            print(
+                f"✅ Cache refreshed: {len(self.known_names)} identities loaded in {time.time() - start_t:.3f}s"
+            )
+        except Exception as e:
+            print(f"❌ Cache refresh failed: {e}")
+
+    def add_identity(self, name: str, embedding: List[float]):
+        """Incrementally update cache without full reload."""
+        self.known_names.append(name)
+        self.known_embeddings.append(np.array(embedding, dtype=np.float32))
+
+
+
+face_cache = EmbeddingCache()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # --- Startup Logic ---
@@ -51,6 +104,8 @@ async def lifespan(app: FastAPI):
     try:
         db = Database.get_instance()
         print("Database connection pool initialized.")
+
+        face_cache.load_from_db(db)
     except Exception as e:
         print(f"‼️ WARNING: Failed to connect to DB: {e}")
 
@@ -112,75 +167,43 @@ def check_image_exists(file_hash: str):
 def identify_face_from_db(target_embedding: list) -> str:
     """
     Identifies a face using optimized Matrix Multiplication (Vectorization).
+    ‼️ NOW USES IN-MEMORY CACHE
     """
-    if not db or not target_embedding:
+
+    if not face_cache.known_embeddings or not target_embedding:
         return None
 
     try:
         # Create NumPy array from target and normalize immediately
-        target_arr = np.array(target_embedding)
+        target_arr = np.array(target_embedding, dtype=np.float32)
         norm_target = np.linalg.norm(target_arr)
 
-        # Handle zero vector edge case
         if norm_target == 0:
             return None
 
-        # Normalize target vector so we only need dot product later
         target_arr = target_arr / norm_target
 
-        best_match_name = None
 
-        with db.get_cursor() as cur:
-            # Fetch all candidate embeddings
-            cur.execute(
-                "SELECT classification, embedding FROM faces WHERE classification IS NOT NULL AND classification != '' AND embedding IS NOT NULL"
-            )
-            rows = cur.fetchall()
+        known_matrix = np.array(face_cache.known_embeddings)  # (N, 512)
 
-            if not rows:
-                return None
+        # Calculate L2 Norm for every row in the matrix
+        norms = np.linalg.norm(known_matrix, axis=1, keepdims=True)
+        norms[norms == 0] = 1  # Safety
 
-            known_embeddings = []
-            known_names = []
+        normalized_matrix = known_matrix / norms
 
-            # Parse strings to lists (still necessary without pgvector, but done in batch)
-            for classification, embedding_str in rows:
-                try:
-                    # ast.literal_eval is safer than eval
-                    emb_list = ast.literal_eval(embedding_str)
-                    known_embeddings.append(emb_list)
-                    known_names.append(classification)
-                except Exception:
-                    continue
+        # Calculate Cosine Similarity via Dot Product
+        similarities = np.dot(normalized_matrix, target_arr)
 
-            if not known_embeddings:
-                return None
+        # Find the index of the maximum score
+        best_idx = np.argmax(similarities)
+        best_score = similarities[best_idx]
 
-            # Convert list of lists to a 2D NumPy Matrix (N, 512)
-            known_matrix = np.array(known_embeddings)
+        if best_score > MATCH_THRESHOLD:
 
-            # Calculate L2 Norm for every row in the matrix
-            # axis=1 calculates norm across columns for each row
-            norms = np.linalg.norm(known_matrix, axis=1, keepdims=True)
+            return face_cache.known_names[best_idx]
 
-            # Safety: Avoid division by zero
-            norms[norms == 0] = 1
-
-            # Normalize the entire database matrix
-            normalized_matrix = known_matrix / norms
-
-            # Calculate Cosine Similarity via Dot Product
-            # Shape: (N, 512) dot (512,) -> (N,)
-            similarities = np.dot(normalized_matrix, target_arr)
-
-            # Find the index of the maximum score
-            best_idx = np.argmax(similarities)
-            best_score = similarities[best_idx]
-
-            if best_score > MATCH_THRESHOLD:
-                best_match_name = known_names[best_idx]
-
-        return best_match_name
+        return None
     except Exception as e:
         print(f"Identification Error: {e}")
         return None
@@ -263,6 +286,11 @@ def save_to_db(
                         height,
                     ),
                 )
+
+
+                if final_classification and face_data.embedding:
+                    face_cache.add_identity(final_classification, face_data.embedding)
+
         print(f"✅ Saved faces to DB.")
     except Exception as e:
         print(f"❌ Database Error: {e}")
@@ -298,6 +326,10 @@ def update_face_record(face_id: int, update: FaceUpdate):
 
             if cur.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Face record not found")
+
+
+        if update.classification is not None:
+            face_cache.load_from_db(db)
 
         return {
             "status": "success",
@@ -387,6 +419,7 @@ async def reanalyze_face(face_id: int):
             emb_array = await run_in_threadpool(embedder.get_embedding, target_face)
             if emb_array.size > 0:
                 embedding_val = str(emb_array.tolist())
+
                 if not current_classification:
                     identified_classification = identify_face_from_db(
                         emb_array.tolist()
@@ -419,6 +452,10 @@ async def reanalyze_face(face_id: int):
 
             cur.execute(update_query, tuple(params))
 
+
+        if identified_classification and emb_array.size > 0:
+            face_cache.add_identity(identified_classification, emb_array.tolist())
+
         return {
             "status": "success",
             "data": {
@@ -447,9 +484,8 @@ def delete_face(face_id: int):
             if cur.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Face record not found")
 
-            # Note: We do NOT delete from stored_images automatically
-            # because other faces might reference it.
-            # A background job could clean up orphaned blobs if needed.
+
+        face_cache.load_from_db(db)
 
         return {"status": "success", "message": f"Face {face_id} deleted successfully"}
     except HTTPException as he:
@@ -790,4 +826,3 @@ if FRONTEND_DIR.exists():
 
 if __name__ == "__main__":
     uvicorn.run("facer.server:app", host="0.0.0.0", port=8000, reload=False)
-
