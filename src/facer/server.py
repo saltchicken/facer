@@ -91,8 +91,15 @@ def check_image_exists(file_hash: str):
         return None
     try:
         with db.get_cursor() as cur:
+            # Check if we have any face records linked to a stored image with this hash
             cur.execute(
-                "SELECT image_name FROM faces WHERE source_image_hash = %s LIMIT 1",
+                """
+                SELECT f.image_name 
+                FROM faces f
+                JOIN stored_images si ON f.stored_image_id = si.id
+                WHERE si.hash = %s 
+                LIMIT 1
+                """,
                 (file_hash,),
             )
             row = cur.fetchone()
@@ -110,17 +117,21 @@ def identify_face_from_db(target_embedding: list) -> str:
         return None
 
     try:
+        # Create NumPy array from target and normalize immediately
         target_arr = np.array(target_embedding)
         norm_target = np.linalg.norm(target_arr)
 
+        # Handle zero vector edge case
         if norm_target == 0:
             return None
 
+        # Normalize target vector so we only need dot product later
         target_arr = target_arr / norm_target
 
         best_match_name = None
 
         with db.get_cursor() as cur:
+            # Fetch all candidate embeddings
             cur.execute(
                 "SELECT classification, embedding FROM faces WHERE classification IS NOT NULL AND classification != '' AND embedding IS NOT NULL"
             )
@@ -132,6 +143,7 @@ def identify_face_from_db(target_embedding: list) -> str:
             known_embeddings = []
             known_names = []
 
+            # Parse strings to lists (still necessary without pgvector, but done in batch)
             for classification, embedding_str in rows:
                 try:
                     # ast.literal_eval is safer than eval
@@ -144,18 +156,24 @@ def identify_face_from_db(target_embedding: list) -> str:
             if not known_embeddings:
                 return None
 
+            # Convert list of lists to a 2D NumPy Matrix (N, 512)
             known_matrix = np.array(known_embeddings)
 
+            # Calculate L2 Norm for every row in the matrix
             # axis=1 calculates norm across columns for each row
             norms = np.linalg.norm(known_matrix, axis=1, keepdims=True)
 
+            # Safety: Avoid division by zero
             norms[norms == 0] = 1
 
+            # Normalize the entire database matrix
             normalized_matrix = known_matrix / norms
 
+            # Calculate Cosine Similarity via Dot Product
             # Shape: (N, 512) dot (512,) -> (N,)
             similarities = np.dot(normalized_matrix, target_arr)
 
+            # Find the index of the maximum score
             best_idx = np.argmax(similarities)
             best_score = similarities[best_idx]
 
@@ -183,6 +201,21 @@ def save_to_db(
         return
     try:
         with db.get_cursor() as cur:
+            # 1. Insert or Retrieve Image Blob ID
+            cur.execute("SELECT id FROM stored_images WHERE hash = %s", (file_hash,))
+            row = cur.fetchone()
+
+            stored_image_id = None
+            if row:
+                stored_image_id = row[0]
+            else:
+                cur.execute(
+                    "INSERT INTO stored_images (image_data, hash) VALUES (%s, %s) RETURNING id",
+                    (Binary(original_image_bytes), file_hash),
+                )
+                stored_image_id = cur.fetchone()[0]
+
+            # 2. Insert Faces linked to Blob ID
             faces_to_process = []
             if faces_data:
                 # Logic to find best face remains same
@@ -208,10 +241,10 @@ def save_to_db(
                     """
                     INSERT INTO faces (
                         image_name, description, keywords, classification, bbox, yaw, pitch, roll, 
-                        embedding, is_valid_pose, direction, source_image_hash,
-                        original_image, width, height
+                        embedding, is_valid_pose, direction, stored_image_id,
+                        width, height
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         filename,
@@ -225,8 +258,7 @@ def save_to_db(
                         embedding_val,
                         face_data.is_valid_pose,
                         face_data.pose.direction_label,
-                        file_hash,
-                        Binary(original_image_bytes),
+                        stored_image_id,
                         width,
                         height,
                     ),
@@ -284,10 +316,14 @@ async def reanalyze_face(face_id: int):
         raise HTTPException(status_code=503, detail="Database not configured")
 
     try:
-        # 1. Fetch original image (Read operation)
         with db.get_cursor() as cur:
             cur.execute(
-                "SELECT original_image, bbox, classification FROM faces WHERE id = %s",
+                """
+                SELECT si.image_data, f.bbox, f.classification 
+                FROM faces f
+                JOIN stored_images si ON f.stored_image_id = si.id
+                WHERE f.id = %s
+                """,
                 (face_id,),
             )
             row = cur.fetchone()
@@ -352,9 +388,6 @@ async def reanalyze_face(face_id: int):
             if emb_array.size > 0:
                 embedding_val = str(emb_array.tolist())
                 if not current_classification:
-                    # identify_face_from_db is synchronous DB, so it's fine to call it directly
-                    # as it's now using the pool, but better to wrap in run_in_threadpool if heavy.
-                    # Given it's DB IO + Math, let's leave it direct for simplicity with the new pool.
                     identified_classification = identify_face_from_db(
                         emb_array.tolist()
                     )
@@ -413,6 +446,11 @@ def delete_face(face_id: int):
             cur.execute("DELETE FROM faces WHERE id = %s", (face_id,))
             if cur.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Face record not found")
+
+            # Note: We do NOT delete from stored_images automatically
+            # because other faces might reference it.
+            # A background job could clean up orphaned blobs if needed.
+
         return {"status": "success", "message": f"Face {face_id} deleted successfully"}
     except HTTPException as he:
         raise he
@@ -507,19 +545,20 @@ def export_faces(
     if not db:
         raise HTTPException(status_code=503, detail="Database not connected")
     try:
-        query = "SELECT id, image_name, original_image FROM faces"
+        query = """
+            SELECT f.id, f.image_name, si.image_data 
+            FROM faces f
+            JOIN stored_images si ON f.stored_image_id = si.id
+        """
         params = []
 
         query, params = db.build_filter_query(query, params, keyword, classification)
-        query += " ORDER BY id ASC"
+        query += " ORDER BY f.id ASC"
 
         zip_buffer = io.BytesIO()
 
         with db.get_cursor() as cur:
             cur.execute(query, tuple(params))
-
-            # Ideally, use server-side cursor (named cursor) for large exports,
-            # but standard cursor ok for now given previous code.
 
             with zipfile.ZipFile(
                 zip_buffer, "a", zipfile.ZIP_DEFLATED, False
@@ -551,7 +590,13 @@ def get_face_image(face_id: int):
     try:
         with db.get_cursor() as cur:
             cur.execute(
-                "SELECT original_image, bbox FROM faces WHERE id = %s", (face_id,)
+                """
+                SELECT si.image_data, f.bbox 
+                FROM faces f
+                JOIN stored_images si ON f.stored_image_id = si.id
+                WHERE f.id = %s
+                """,
+                (face_id,),
             )
             row = cur.fetchone()
 
@@ -592,7 +637,15 @@ def get_face_full_image(face_id: int):
         return Response(status_code=500, content="DB not connected")
     try:
         with db.get_cursor() as cur:
-            cur.execute("SELECT original_image FROM faces WHERE id = %s", (face_id,))
+            cur.execute(
+                """
+                SELECT si.image_data 
+                FROM faces f
+                JOIN stored_images si ON f.stored_image_id = si.id
+                WHERE f.id = %s
+                """,
+                (face_id,),
+            )
             row = cur.fetchone()
             if row and row[0]:
                 nparr = np.frombuffer(row[0], np.uint8)
@@ -737,3 +790,4 @@ if FRONTEND_DIR.exists():
 
 if __name__ == "__main__":
     uvicorn.run("facer.server:app", host="0.0.0.0", port=8000, reload=False)
+
