@@ -40,7 +40,6 @@ PITCH_THRESHOLD = 25.0
 MATCH_THRESHOLD = 0.4
 
 
-
 class EmbeddingCache:
     def __init__(self):
         self.known_embeddings: List[np.ndarray] = []
@@ -55,7 +54,6 @@ class EmbeddingCache:
             print("🔄 Refreshing Embedding Cache...")
             start_t = time.time()
             with db_instance.get_cursor() as cur:
-
                 cur.execute(
                     "SELECT classification, embedding FROM faces WHERE classification IS NOT NULL AND classification != '' AND embedding IS NOT NULL"
                 )
@@ -66,7 +64,6 @@ class EmbeddingCache:
 
             for classification, embedding_str in rows:
                 try:
-
                     emb_list = ast.literal_eval(embedding_str)
                     new_embeddings.append(np.array(emb_list, dtype=np.float32))
                     new_names.append(classification)
@@ -86,7 +83,6 @@ class EmbeddingCache:
         """Incrementally update cache without full reload."""
         self.known_names.append(name)
         self.known_embeddings.append(np.array(embedding, dtype=np.float32))
-
 
 
 face_cache = EmbeddingCache()
@@ -183,7 +179,6 @@ def identify_face_from_db(target_embedding: list) -> str:
 
         target_arr = target_arr / norm_target
 
-
         known_matrix = np.array(face_cache.known_embeddings)  # (N, 512)
 
         # Calculate L2 Norm for every row in the matrix
@@ -200,7 +195,6 @@ def identify_face_from_db(target_embedding: list) -> str:
         best_score = similarities[best_idx]
 
         if best_score > MATCH_THRESHOLD:
-
             return face_cache.known_names[best_idx]
 
         return None
@@ -287,7 +281,6 @@ def save_to_db(
                     ),
                 )
 
-
                 if final_classification and face_data.embedding:
                     face_cache.add_identity(final_classification, face_data.embedding)
 
@@ -326,7 +319,6 @@ def update_face_record(face_id: int, update: FaceUpdate):
 
             if cur.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Face record not found")
-
 
         if update.classification is not None:
             face_cache.load_from_db(db)
@@ -452,7 +444,6 @@ async def reanalyze_face(face_id: int):
 
             cur.execute(update_query, tuple(params))
 
-
         if identified_classification and emb_array.size > 0:
             face_cache.add_identity(identified_classification, emb_array.tolist())
 
@@ -483,7 +474,6 @@ def delete_face(face_id: int):
             cur.execute("DELETE FROM faces WHERE id = %s", (face_id,))
             if cur.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Face record not found")
-
 
         face_cache.load_from_db(db)
 
@@ -825,4 +815,5 @@ if FRONTEND_DIR.exists():
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="static")
 
 if __name__ == "__main__":
-    uvicorn.run("facer.server:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("facer.server:app", host="0.0.0.0", port=8470, reload=False)
+
