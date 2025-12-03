@@ -222,24 +222,28 @@ function App() {
 
       if (!response.ok) throw new Error('Analysis failed');
 
-      const results: AnalysisResponse[] = await response.json();
 
-      // Map results back to queue items by filename
-      // Note: This relies on filenames being unique in the batch or order preservation. 
-      // The backend processes in order, so mapping by index is safer if filenames are duplicates in upload.
+      await response.json();
+
 
       setQueue(prev => {
-        const next = [...prev];
-        results.forEach((res, i) => {
-          // We assume backend returns results in same order as files were appended
-          if (next[i]) {
-            next[i] = {
-              ...next[i],
-              analysis: res,
-              status: res.error ? 'error' : 'done'
-            };
-          }
-        });
+        // We use the ID to ensure we only remove the items that were sent in this batch
+        // (in case user added more items while upload was happening)
+        const sentIds = new Set(queue.map(q => q.id));
+
+        // Cleanup object URLs to prevent memory leaks
+        queue.forEach(item => URL.revokeObjectURL(item.previewUrl));
+
+        const next = prev.filter(item => !sentIds.has(item.id));
+
+        // Reset active index logic
+        if (next.length === 0) {
+          setActiveIndex(0);
+          if (fileInputRef.current) fileInputRef.current.value = '';
+        } else if (activeIndex >= next.length) {
+          setActiveIndex(0);
+        }
+
         return next;
       });
 
