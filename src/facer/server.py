@@ -248,6 +248,35 @@ def save_to_db(
                 best_face = max(faces_data, key=get_face_score)
                 faces_to_process = [best_face]
 
+            # ‼️ CHANGE: Handle case where no faces are detected but we still want to save the image
+            if not faces_to_process:
+                cur.execute(
+                    """
+                    INSERT INTO faces (
+                        image_name, description, keywords, classification, bbox, yaw, pitch, roll, 
+                        embedding, is_valid_pose, direction, stored_image_id,
+                        width, height
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        filename,
+                        description,
+                        keywords,
+                        classification,
+                        [],  # Empty bbox for no face
+                        None,  # yaw
+                        None,  # pitch
+                        None,  # roll
+                        None,  # embedding
+                        False,  # is_valid_pose
+                        "none",  # direction
+                        stored_image_id,
+                        width,
+                        height,
+                    ),
+                )
+
             for face_data in faces_to_process:
                 embedding_val = (
                     str(face_data.embedding) if face_data.embedding else None
@@ -816,4 +845,3 @@ if FRONTEND_DIR.exists():
 
 if __name__ == "__main__":
     uvicorn.run("facer.server:app", host="0.0.0.0", port=8470, reload=False)
-
