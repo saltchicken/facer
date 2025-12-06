@@ -12,7 +12,7 @@ import hashlib
 import zipfile
 import io
 import ast
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Any, Optional
 from psycopg2 import Binary
 import time
 
@@ -27,6 +27,7 @@ from facer.schemas import (
     FacePose,
     FaceUpdate,
 )
+from facer.utils import apply_image_filter
 
 # Global instances
 detector = None
@@ -86,6 +87,37 @@ class EmbeddingCache:
 
 
 face_cache = EmbeddingCache()
+
+
+
+class ScriptResultCache:
+    def __init__(self, ttl_seconds=300):  # 5 Minute TTL
+        # Key: "face_id:script_name", Value: (timestamp, image_array, filename)
+        self._cache: Dict[str, Tuple[float, np.ndarray, str]] = {}
+        self.ttl = ttl_seconds
+
+    def get(self, key: str) -> Optional[Tuple[np.ndarray, str]]:
+        if key in self._cache:
+            timestamp, image, filename = self._cache[key]
+            if time.time() - timestamp < self.ttl:
+                return image, filename
+            else:
+                del self._cache[key]  # Expired
+        return None
+
+    def set(self, key: str, image: np.ndarray, filename: str):
+        # Simple cleanup on set to prevent memory leaks
+        current_time = time.time()
+        # Remove expired keys
+        expired = [k for k, v in self._cache.items() if current_time - v[0] > self.ttl]
+        for k in expired:
+            del self._cache[k]
+
+        self._cache[key] = (current_time, image, filename)
+
+
+
+script_cache = ScriptResultCache()
 
 
 @asynccontextmanager
@@ -248,7 +280,7 @@ def save_to_db(
                 best_face = max(faces_data, key=get_face_score)
                 faces_to_process = [best_face]
 
-            # ‼️ CHANGE: Handle case where no faces are detected but we still want to save the image
+            # Handle case where no faces are detected but we still want to save the image
             if not faces_to_process:
                 cur.execute(
                     """
@@ -714,6 +746,130 @@ def get_face_full_image(face_id: int):
             return Response(status_code=404)
     except Exception:
         return Response(status_code=500)
+
+
+
+async def run_image_script(face_id: int, script_name: str) -> Tuple[np.ndarray, str]:
+    # 1. Check Cache
+    cache_key = f"{face_id}:{script_name}"
+    cached = script_cache.get(cache_key)
+    if cached:
+        print(f"⚡ Using cached result for {cache_key}")
+        return cached
+
+    if not db:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    # 2. Fetch original image
+    with db.get_cursor() as cur:
+        cur.execute(
+            """
+            SELECT si.image_data, f.image_name 
+            FROM faces f
+            JOIN stored_images si ON f.stored_image_id = si.id
+            WHERE f.id = %s
+            """,
+            (face_id,),
+        )
+        row = cur.fetchone()
+        if not row or not row[0]:
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        original_bytes = row[0]
+
+    nparr = np.frombuffer(original_bytes, np.uint8)
+    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+    if image is None:
+        raise HTTPException(status_code=500, detail="Failed to decode image")
+
+    # 3. Process image (in threadpool to avoid blocking)
+    processed_image = await run_in_threadpool(apply_image_filter, image, script_name)
+
+    # 4. Store in Cache
+    script_cache.set(cache_key, processed_image, row[1])
+
+    return processed_image, row[1]
+
+
+# Endpoint to Preview Script Result
+@app.post("/faces/{face_id}/script/preview")
+async def preview_script(face_id: int, script_name: str = Query("grayscale")):
+    try:
+        processed_image, _ = await run_image_script(face_id, script_name)
+
+        success, buffer = cv2.imencode(".jpg", processed_image)
+        if not success:
+            raise HTTPException(
+                status_code=500, detail="Failed to encode processed image"
+            )
+
+        return Response(content=buffer.tobytes(), media_type="image/jpeg")
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"Script Preview Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Endpoint to Save Script Result as NEW Entry
+@app.post("/faces/{face_id}/script/save")
+async def save_script_result(face_id: int, script_name: str = Query("grayscale")):
+    try:
+        # This will now hit the cache if you just ran a preview!
+        processed_image, original_filename = await run_image_script(
+            face_id, script_name
+        )
+
+        # Encode to bytes for saving
+        success, buffer = cv2.imencode(".jpg", processed_image)
+        if not success:
+            raise HTTPException(
+                status_code=500, detail="Failed to encode processed image"
+            )
+
+        image_bytes = buffer.tobytes()
+        file_hash = hashlib.sha256(image_bytes).hexdigest()
+
+        # Get metadata from original face record
+        with db.get_cursor() as cur:
+            cur.execute(
+                "SELECT description, keywords, classification FROM faces WHERE id = %s",
+                (face_id,),
+            )
+            meta = cur.fetchone()
+            desc = (meta[0] or "") + f" (Processed: {script_name})"
+            keys = meta[1]
+            classif = meta[2]
+
+        height, width = processed_image.shape[:2]
+
+        # Use existing sync logic to analyze and save the NEW image
+        results = await run_in_threadpool(
+            process_analysis_sync,
+            processed_image,
+            True,  # Save = True
+            f"processed_{original_filename}",
+            desc,
+            keys,
+            classif,
+            file_hash,
+            image_bytes,
+            width,
+            height,
+        )
+
+        return {
+            "status": "success",
+            "message": "Processed image saved",
+            "results": results,
+        }
+
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"Script Save Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # Sync worker for analysis

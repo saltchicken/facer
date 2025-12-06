@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   Loader2, Tag, User, Edit2, Check, X,
   ChevronLeft, ChevronRight, RefreshCw, ChevronDown, Download,
-  Trash2, ScanSearch
+  Trash2, ScanSearch, Wand2, Save, Play
 } from 'lucide-react';
 import type { FaceRecord } from './types';
 import { useDebounce } from './hooks/useDebounce';
@@ -100,6 +100,14 @@ export default function Gallery() {
   const [selectedImage, setSelectedImage] = useState<FaceRecord | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
 
+
+  const [scriptMode, setScriptMode] = useState(false);
+  const [selectedScript, setSelectedScript] = useState('grayscale');
+  const [scriptPreviewUrl, setScriptPreviewUrl] = useState<string | null>(null);
+  const [processingScript, setProcessingScript] = useState(false);
+  const [savingScriptResult, setSavingScriptResult] = useState(false);
+
+
   const [filters, setFilters] = useState<{
     keywords: string[];
     classifications: string[];
@@ -143,7 +151,7 @@ export default function Gallery() {
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
 
       if (selectedImage) {
-        if (e.key === 'Escape') setSelectedImage(null);
+        if (e.key === 'Escape') closeSelectedImage();
       } else {
         if (e.key === 'ArrowRight' && hasNextPage) setPage(p => p + 1);
         if (e.key === 'ArrowLeft' && page > 0) setPage(p => Math.max(0, p - 1));
@@ -152,6 +160,13 @@ export default function Gallery() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [page, hasNextPage, selectedImage]);
+
+  const closeSelectedImage = () => {
+    setSelectedImage(null);
+    // Reset script state
+    setScriptMode(false);
+    setScriptPreviewUrl(null);
+  };
 
 
   const fetchFilterOptions = async () => {
@@ -259,7 +274,7 @@ export default function Gallery() {
       const res = await fetch(`/faces/${id}`, { method: 'DELETE' });
       if (res.ok) {
         setFaces(faces.filter(f => f.id !== id));
-        if (selectedImage?.id === id) setSelectedImage(null);
+        if (selectedImage?.id === id) closeSelectedImage();
         if (editingId === id) setEditingId(null);
       } else {
         console.error("Failed to delete");
@@ -315,6 +330,58 @@ export default function Gallery() {
       setAnalyzing(false);
     }
   }
+
+
+  const handleRunScript = async () => {
+    if (!selectedImage) return;
+    setProcessingScript(true);
+    setScriptPreviewUrl(null); // Clear previous
+
+    try {
+      // Fetch the blob directly
+      const res = await fetch(`/faces/${selectedImage.id}/script/preview?script_name=${selectedScript}`, {
+        method: 'POST'
+      });
+
+      if (!res.ok) throw new Error("Script execution failed");
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      setScriptPreviewUrl(url);
+
+    } catch (err) {
+      console.error(err);
+      alert("Failed to run script.");
+    } finally {
+      setProcessingScript(false);
+    }
+  };
+
+
+  const handleSaveScript = async () => {
+    if (!selectedImage) return;
+    setSavingScriptResult(true);
+
+    try {
+      const res = await fetch(`/faces/${selectedImage.id}/script/save?script_name=${selectedScript}`, {
+        method: 'POST'
+      });
+
+      if (!res.ok) throw new Error("Failed to save script result");
+
+      // Refresh gallery to show new image
+      fetchFaces();
+      alert("Image saved as a new entry!");
+      closeSelectedImage();
+
+    } catch (err) {
+      console.error(err);
+      alert("Failed to save image.");
+    } finally {
+      setSavingScriptResult(false);
+    }
+  };
+
 
   if (loading && faces.length === 0) {
     return (
@@ -529,26 +596,45 @@ export default function Gallery() {
       {selectedImage && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
-          onClick={() => setSelectedImage(null)}
+          onClick={closeSelectedImage}
         >
           <div
             className="relative max-w-7xl w-full max-h-[95vh] flex flex-col items-center"
             onClick={e => e.stopPropagation()}
           >
             <button
-              onClick={() => setSelectedImage(null)}
+              onClick={closeSelectedImage}
               className="absolute -top-12 right-0 p-2 text-slate-400 hover:text-white transition-colors"
             >
               <X size={32} />
             </button>
 
-            <img
-              src={`/faces/${selectedImage.id}/full_image`}
-              alt={selectedImage.image_name}
-              className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl bg-slate-900"
-            />
 
-            <div className="mt-4 bg-slate-900/90 px-6 py-3 rounded-full border border-slate-700 shadow-xl backdrop-blur text-slate-200 flex gap-4 items-center">
+            <div className="flex gap-4 items-center justify-center max-h-[85vh]">
+              {/* Original */}
+              <div className="relative">
+                <img
+                  src={`/faces/${selectedImage.id}/full_image`}
+                  alt={selectedImage.image_name}
+                  className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-2xl bg-slate-900"
+                />
+                {scriptPreviewUrl && <span className="absolute top-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded">Original</span>}
+              </div>
+
+              {/* Processed Preview */}
+              {scriptPreviewUrl && (
+                <div className="relative animate-in fade-in slide-in-from-right">
+                  <img
+                    src={scriptPreviewUrl}
+                    alt="Processed Preview"
+                    className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-2xl bg-slate-900 border-2 border-indigo-500"
+                  />
+                  <span className="absolute top-2 left-2 bg-indigo-600 text-white text-xs px-2 py-1 rounded">Processed Preview</span>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 bg-slate-900/90 px-6 py-3 rounded-full border border-slate-700 shadow-xl backdrop-blur text-slate-200 flex gap-4 items-center flex-wrap justify-center">
               <span className="font-medium">{selectedImage.description || selectedImage.image_name}</span>
               {selectedImage.classification && (
                 <span className="text-xs bg-indigo-500/20 text-indigo-300 px-2 py-1 rounded border border-indigo-500/30">
@@ -558,26 +644,65 @@ export default function Gallery() {
 
               <div className="w-px h-5 bg-slate-700 mx-2"></div>
 
+              {/* Standard Analysis Button */}
+              {!scriptMode && (
+                <button
+                  onClick={handleReanalyze}
+                  disabled={analyzing}
+                  className="flex items-center gap-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-full transition-colors disabled:opacity-50"
+                >
+                  {analyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <ScanSearch className="w-3 h-3" />}
+                  Run Analysis
+                </button>
+              )}
+
+
               <button
-                onClick={handleReanalyze}
-                disabled={analyzing}
-                className="flex items-center gap-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-full transition-colors disabled:opacity-50"
+                onClick={() => { setScriptMode(!scriptMode); setScriptPreviewUrl(null); }}
+                className={`flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full transition-colors ${scriptMode ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
               >
-                {analyzing ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : (
-                  <ScanSearch className="w-3 h-3" />
-                )}
-                Run Analysis
+                <Wand2 className="w-3 h-3" />
+                {scriptMode ? "Hide Tools" : "Tools"}
               </button>
 
 
-              {selectedImage.yaw !== undefined && (
-                <div className="text-xs text-slate-400 flex flex-col leading-tight ml-2">
-                  <span>Y: {selectedImage.yaw?.toFixed(1)}°</span>
-                  <span>P: {selectedImage.pitch?.toFixed(1)}°</span>
+              {scriptMode && (
+                <div className="flex items-center gap-2 animate-in slide-in-from-left">
+                  <div className="w-px h-5 bg-slate-700 mx-2"></div>
+
+                  <select
+                    value={selectedScript}
+                    onChange={(e) => setSelectedScript(e.target.value)}
+                    className="bg-slate-950 text-xs border border-slate-700 rounded px-2 py-1.5 outline-none focus:border-indigo-500"
+                  >
+                    <option value="grayscale">Grayscale (Test)</option>
+                    <option value="edges">Edge Detection</option>
+                    <option value="invert">Invert Colors</option>
+                    <option value="remove_bg">Remove Background (Requires rembg)</option>
+                  </select>
+
+                  <button
+                    onClick={handleRunScript}
+                    disabled={processingScript}
+                    className="flex items-center gap-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-full transition-colors disabled:opacity-50"
+                  >
+                    {processingScript ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                    Run
+                  </button>
+
+                  {scriptPreviewUrl && (
+                    <button
+                      onClick={handleSaveScript}
+                      disabled={savingScriptResult}
+                      className="flex items-center gap-2 text-xs font-semibold bg-green-600 hover:bg-green-500 text-white px-3 py-1.5 rounded-full transition-colors disabled:opacity-50 animate-in fade-in"
+                    >
+                      {savingScriptResult ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                      Save Copy
+                    </button>
+                  )}
                 </div>
               )}
+
             </div>
           </div>
         </div>
