@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   Loader2, Tag, User, Edit2, Check, X,
   ChevronLeft, ChevronRight, RefreshCw, ChevronDown, Download,
-  Trash2, ScanSearch, Wand2, Save, Play
+  Trash2, ScanSearch, Wand2, Save, Play, RefreshCcw
 } from 'lucide-react';
 import type { FaceRecord } from './types';
 import { useDebounce } from './hooks/useDebounce';
@@ -100,12 +100,16 @@ export default function Gallery() {
   const [selectedImage, setSelectedImage] = useState<FaceRecord | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
 
-
+  // Script tool state
   const [scriptMode, setScriptMode] = useState(false);
   const [selectedScript, setSelectedScript] = useState('grayscale');
   const [scriptPreviewUrl, setScriptPreviewUrl] = useState<string | null>(null);
   const [processingScript, setProcessingScript] = useState(false);
   const [savingScriptResult, setSavingScriptResult] = useState(false);
+  const [overwriting, setOverwriting] = useState(false);
+
+
+  const [cacheKey, setCacheKey] = useState(Date.now());
 
 
   const [filters, setFilters] = useState<{
@@ -323,6 +327,9 @@ export default function Gallery() {
       setSelectedImage(updatedRecord);
       setFaces(prev => prev.map(f => f.id === selectedImage.id ? updatedRecord : f));
 
+
+      setCacheKey(Date.now());
+
     } catch (error) {
       console.error("Re-analyze error", error);
       alert("Failed to re-analyze image.");
@@ -331,7 +338,7 @@ export default function Gallery() {
     }
   }
 
-
+  // Handle running the preview script
   const handleRunScript = async () => {
     if (!selectedImage) return;
     setProcessingScript(true);
@@ -357,7 +364,7 @@ export default function Gallery() {
     }
   };
 
-
+  // Handle saving the script result
   const handleSaveScript = async () => {
     if (!selectedImage) return;
     setSavingScriptResult(true);
@@ -379,6 +386,40 @@ export default function Gallery() {
       alert("Failed to save image.");
     } finally {
       setSavingScriptResult(false);
+    }
+  };
+
+  const handleOverwrite = async () => {
+    if (!selectedImage) return;
+    if (!window.confirm("Overwrite original? This cannot be undone.")) return;
+
+    setOverwriting(true);
+
+    try {
+      const res = await fetch(`/faces/${selectedImage.id}/script/save?script_name=${selectedScript}&overwrite=true`, {
+        method: 'POST'
+      });
+
+      if (!res.ok) throw new Error("Failed to overwrite");
+
+
+      setCacheKey(Date.now());
+
+      // Reload faces to update thumbnail
+      await fetchFaces();
+
+      // Update the selected view to show the new version immediately without closing
+      await res.json();
+
+      // We can update local state if we want to keep it open, but closing is safer to ensure refresh
+      closeSelectedImage();
+      alert("Image overwritten successfully.");
+
+    } catch (err) {
+      console.error(err);
+      alert("Failed to overwrite image.");
+    } finally {
+      setOverwriting(false);
     }
   };
 
@@ -466,8 +507,9 @@ export default function Gallery() {
             className="group bg-slate-900 border border-slate-800 rounded-xl overflow-hidden hover:border-indigo-500/50 transition-all hover:shadow-xl hover:shadow-indigo-500/10"
           >
             <div className="aspect-square bg-slate-950 relative overflow-hidden">
+
               <img
-                src={`/faces/${face.id}/image`}
+                src={`/faces/${face.id}/image?t=${cacheKey}`}
                 alt={face.image_name}
 
                 onClick={() => setSelectedImage(face)}
@@ -609,12 +651,13 @@ export default function Gallery() {
               <X size={32} />
             </button>
 
-
+            {/* Flex container for Side-by-Side comparison if script active */}
             <div className="flex gap-4 items-center justify-center max-h-[85vh]">
               {/* Original */}
               <div className="relative">
+
                 <img
-                  src={`/faces/${selectedImage.id}/full_image`}
+                  src={`/faces/${selectedImage.id}/full_image?t=${cacheKey}`}
                   alt={selectedImage.image_name}
                   className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-2xl bg-slate-900"
                 />
@@ -656,7 +699,7 @@ export default function Gallery() {
                 </button>
               )}
 
-
+              {/* Toggle Script Mode */}
               <button
                 onClick={() => { setScriptMode(!scriptMode); setScriptPreviewUrl(null); }}
                 className={`flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full transition-colors ${scriptMode ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
@@ -665,7 +708,7 @@ export default function Gallery() {
                 {scriptMode ? "Hide Tools" : "Tools"}
               </button>
 
-
+              {/* Script Controls */}
               {scriptMode && (
                 <div className="flex items-center gap-2 animate-in slide-in-from-left">
                   <div className="w-px h-5 bg-slate-700 mx-2"></div>
@@ -691,14 +734,26 @@ export default function Gallery() {
                   </button>
 
                   {scriptPreviewUrl && (
-                    <button
-                      onClick={handleSaveScript}
-                      disabled={savingScriptResult}
-                      className="flex items-center gap-2 text-xs font-semibold bg-green-600 hover:bg-green-500 text-white px-3 py-1.5 rounded-full transition-colors disabled:opacity-50 animate-in fade-in"
-                    >
-                      {savingScriptResult ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                      Save Copy
-                    </button>
+                    <>
+                      <button
+                        onClick={handleSaveScript}
+                        disabled={savingScriptResult || overwriting}
+                        className="flex items-center gap-2 text-xs font-semibold bg-green-600 hover:bg-green-500 text-white px-3 py-1.5 rounded-full transition-colors disabled:opacity-50 animate-in fade-in"
+                      >
+                        {savingScriptResult ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                        Save Copy
+                      </button>
+
+                      <button
+                        onClick={handleOverwrite}
+                        disabled={savingScriptResult || overwriting}
+                        className="flex items-center gap-2 text-xs font-semibold bg-orange-700 hover:bg-orange-600 text-white px-3 py-1.5 rounded-full transition-colors disabled:opacity-50 animate-in fade-in"
+                        title="Overwrite original image"
+                      >
+                        {overwriting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCcw className="w-3 h-3" />}
+                        Overwrite
+                      </button>
+                    </>
                   )}
                 </div>
               )}

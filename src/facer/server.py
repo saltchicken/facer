@@ -16,7 +16,6 @@ from typing import List, Dict, Tuple, Any, Optional
 from psycopg2 import Binary
 import time
 
-
 from facer.db import Database
 from facer.face_detector import FaceDetector
 from facer.face_direction import FaceDirection
@@ -29,13 +28,11 @@ from facer.schemas import (
 )
 from facer.utils import apply_image_filter
 
-# Global instances
 detector = None
 direction_finder = None
 embedder = None
 db = None
 
-# Configuration Thresholds
 YAW_THRESHOLD = 40.0
 PITCH_THRESHOLD = 25.0
 MATCH_THRESHOLD = 0.4
@@ -89,7 +86,6 @@ class EmbeddingCache:
 face_cache = EmbeddingCache()
 
 
-
 class ScriptResultCache:
     def __init__(self, ttl_seconds=300):  # 5 Minute TTL
         # Key: "face_id:script_name", Value: (timestamp, image_array, filename)
@@ -116,13 +112,11 @@ class ScriptResultCache:
         self._cache[key] = (current_time, image, filename)
 
 
-
 script_cache = ScriptResultCache()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # --- Startup Logic ---
     global detector, direction_finder, embedder, db
     print("Loading models...")
     detector = FaceDetector()
@@ -195,7 +189,6 @@ def check_image_exists(file_hash: str):
 def identify_face_from_db(target_embedding: list) -> str:
     """
     Identifies a face using optimized Matrix Multiplication (Vectorization).
-    ‼️ NOW USES IN-MEMORY CACHE
     """
 
     if not face_cache.known_embeddings or not target_embedding:
@@ -748,7 +741,6 @@ def get_face_full_image(face_id: int):
         return Response(status_code=500)
 
 
-
 async def run_image_script(face_id: int, script_name: str) -> Tuple[np.ndarray, str]:
     # 1. Check Cache
     cache_key = f"{face_id}:{script_name}"
@@ -792,7 +784,6 @@ async def run_image_script(face_id: int, script_name: str) -> Tuple[np.ndarray, 
     return processed_image, row[1]
 
 
-# Endpoint to Preview Script Result
 @app.post("/faces/{face_id}/script/preview")
 async def preview_script(face_id: int, script_name: str = Query("grayscale")):
     try:
@@ -812,16 +803,16 @@ async def preview_script(face_id: int, script_name: str = Query("grayscale")):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Endpoint to Save Script Result as NEW Entry
 @app.post("/faces/{face_id}/script/save")
-async def save_script_result(face_id: int, script_name: str = Query("grayscale")):
+async def save_script_result(
+    face_id: int, script_name: str = Query("grayscale"), overwrite: bool = Query(False)
+):
     try:
-        # This will now hit the cache if you just ran a preview!
         processed_image, original_filename = await run_image_script(
             face_id, script_name
         )
 
-        # Encode to bytes for saving
+        # Encode to bytes
         success, buffer = cv2.imencode(".jpg", processed_image)
         if not success:
             raise HTTPException(
@@ -830,40 +821,140 @@ async def save_script_result(face_id: int, script_name: str = Query("grayscale")
 
         image_bytes = buffer.tobytes()
         file_hash = hashlib.sha256(image_bytes).hexdigest()
-
-        # Get metadata from original face record
-        with db.get_cursor() as cur:
-            cur.execute(
-                "SELECT description, keywords, classification FROM faces WHERE id = %s",
-                (face_id,),
-            )
-            meta = cur.fetchone()
-            desc = (meta[0] or "") + f" (Processed: {script_name})"
-            keys = meta[1]
-            classif = meta[2]
-
         height, width = processed_image.shape[:2]
 
-        # Use existing sync logic to analyze and save the NEW image
-        results = await run_in_threadpool(
-            process_analysis_sync,
-            processed_image,
-            True,  # Save = True
-            f"processed_{original_filename}",
-            desc,
-            keys,
-            classif,
-            file_hash,
-            image_bytes,
-            width,
-            height,
-        )
+        if not overwrite:
+            # --- DEFAULT LOGIC (Save Copy) ---
+            with db.get_cursor() as cur:
+                cur.execute(
+                    "SELECT description, keywords, classification FROM faces WHERE id = %s",
+                    (face_id,),
+                )
+                meta = cur.fetchone()
+                desc = (meta[0] or "") + f" (Processed: {script_name})"
+                keys = meta[1]
+                classif = meta[2]
 
-        return {
-            "status": "success",
-            "message": "Processed image saved",
-            "results": results,
-        }
+            results = await run_in_threadpool(
+                process_analysis_sync,
+                processed_image,
+                True,  # Save = True
+                f"processed_{original_filename}",
+                desc,
+                keys,
+                classif,
+                file_hash,
+                image_bytes,
+                width,
+                height,
+            )
+            return {
+                "status": "success",
+                "message": "Processed image saved as copy",
+                "results": results,
+            }
+
+        else:
+            # --- OVERWRITE LOGIC ---
+            # 1. Analyze new image (don't save automatically)
+            results = await run_in_threadpool(
+                process_analysis_sync,
+                processed_image,
+                False,  # Save = False, we handle DB updates manually
+                original_filename,
+                None,
+                None,
+                None,
+                file_hash,
+                None,
+                width,
+                height,
+            )
+
+            best_face = None
+
+
+            if not results:
+                print(
+                    f"⚠️ No faces detected in overwritten image {face_id}. Preserving geometry, clearing biometrics."
+                )
+                # Fallback: Create dummy face using existing bbox geometry
+                with db.get_cursor() as cur:
+                    cur.execute("SELECT bbox FROM faces WHERE id = %s", (face_id,))
+                    row = cur.fetchone()
+                    fallback_bbox = row[0] if row else []
+
+                    # Explicitly create FaceData here
+                    best_face = FaceData(
+                        bbox=fallback_bbox,
+                        pose=FacePose(
+                            yaw=0.0, pitch=0.0, roll=0.0, direction_label="unknown"
+                        ),
+                        is_valid_pose=False,
+                        embedding=None,
+                        classification=None,
+                    )
+            else:
+                # Find best face to map to current record
+                best_face = max(
+                    results,
+                    key=lambda f: (
+                        f.is_valid_pose,
+                        (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+                    ),
+                )
+
+            with db.get_cursor() as cur:
+                # 3. Store new image blob
+                cur.execute(
+                    "SELECT id FROM stored_images WHERE hash = %s", (file_hash,)
+                )
+                row = cur.fetchone()
+                if row:
+                    stored_image_id = row[0]
+                else:
+                    cur.execute(
+                        "INSERT INTO stored_images (image_data, hash) VALUES (%s, %s) RETURNING id",
+                        (Binary(image_bytes), file_hash),
+                    )
+                    stored_image_id = cur.fetchone()[0]
+
+                # 4. Update existing Face Record
+                embedding_val = (
+                    str(best_face.embedding) if best_face.embedding else None
+                )
+
+                cur.execute(
+                    """
+                    UPDATE faces 
+                    SET stored_image_id = %s, bbox = %s, yaw = %s, pitch = %s, roll = %s,
+                        embedding = %s, is_valid_pose = %s, direction = %s, width = %s, height = %s
+                    WHERE id = %s
+                    """,
+                    (
+                        stored_image_id,
+                        best_face.bbox,
+                        best_face.pose.yaw,
+                        best_face.pose.pitch,
+                        best_face.pose.roll,
+                        embedding_val,
+                        best_face.is_valid_pose,
+                        best_face.pose.direction_label,
+                        width,
+                        height,
+                        face_id,
+                    ),
+                )
+
+                # 5. Clear script cache for this ID as the source image has changed!
+                if f"{face_id}:{script_name}" in script_cache._cache:
+                    del script_cache._cache[f"{face_id}:{script_name}"]
+
+            return {
+                "status": "success",
+                "message": "Original record overwritten",
+                "results": [best_face],
+            }
 
     except HTTPException as he:
         raise he
@@ -872,7 +963,6 @@ async def save_script_result(face_id: int, script_name: str = Query("grayscale")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Sync worker for analysis
 def process_analysis_sync(
     image, save_flag, filename, desc, keys, classif, file_hash, contents, width, height
 ):
