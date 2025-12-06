@@ -109,6 +109,9 @@ export default function Gallery() {
   const [overwriting, setOverwriting] = useState(false);
 
 
+  const [comfyPrompt, setComfyPrompt] = useState('');
+
+
   const [cacheKey, setCacheKey] = useState(Date.now());
 
 
@@ -346,15 +349,21 @@ export default function Gallery() {
 
     try {
       // Fetch the blob directly
-      const res = await fetch(`/faces/${selectedImage.id}/script/preview?script_name=${selectedScript}`, {
+
+      let url = `/faces/${selectedImage.id}/script/preview?script_name=${selectedScript}`;
+      if (selectedScript === 'comfy_workflow' && comfyPrompt) {
+        url += `&prompt_text=${encodeURIComponent(comfyPrompt)}`;
+      }
+
+      const res = await fetch(url, {
         method: 'POST'
       });
 
       if (!res.ok) throw new Error("Script execution failed");
 
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      setScriptPreviewUrl(url);
+      const urlObj = URL.createObjectURL(blob); // Variable renamed to avoid conflict
+      setScriptPreviewUrl(urlObj);
 
     } catch (err) {
       console.error(err);
@@ -370,7 +379,13 @@ export default function Gallery() {
     setSavingScriptResult(true);
 
     try {
-      const res = await fetch(`/faces/${selectedImage.id}/script/save?script_name=${selectedScript}`, {
+
+      let url = `/faces/${selectedImage.id}/script/save?script_name=${selectedScript}`;
+      if (selectedScript === 'comfy_workflow' && comfyPrompt) {
+        url += `&prompt_text=${encodeURIComponent(comfyPrompt)}`;
+      }
+
+      const res = await fetch(url, {
         method: 'POST'
       });
 
@@ -396,7 +411,13 @@ export default function Gallery() {
     setOverwriting(true);
 
     try {
-      const res = await fetch(`/faces/${selectedImage.id}/script/save?script_name=${selectedScript}&overwrite=true`, {
+
+      let url = `/faces/${selectedImage.id}/script/save?script_name=${selectedScript}&overwrite=true`;
+      if (selectedScript === 'comfy_workflow' && comfyPrompt) {
+        url += `&prompt_text=${encodeURIComponent(comfyPrompt)}`;
+      }
+
+      const res = await fetch(url, {
         method: 'POST'
       });
 
@@ -722,7 +743,19 @@ export default function Gallery() {
                     <option value="edges">Edge Detection</option>
                     <option value="invert">Invert Colors</option>
                     <option value="remove_bg">Remove Background (Requires rembg)</option>
+                    <option value="comfy_workflow">ComfyUI Workflow</option>
                   </select>
+
+
+                  {selectedScript === 'comfy_workflow' && (
+                    <input
+                      type="text"
+                      value={comfyPrompt}
+                      onChange={(e) => setComfyPrompt(e.target.value)}
+                      placeholder="Prompt..."
+                      className="bg-slate-950 text-xs border border-slate-700 rounded px-2 py-1.5 w-32 focus:w-64 transition-all outline-none focus:border-indigo-500"
+                    />
+                  )}
 
                   <button
                     onClick={handleRunScript}

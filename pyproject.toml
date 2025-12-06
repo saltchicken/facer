@@ -16,6 +16,7 @@ dependencies = [
   "aiofiles",
   "psycopg2-binary",
   "python-dotenv",
+  "requests",
 ]
 
 [build-system]

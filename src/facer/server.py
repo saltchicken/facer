@@ -20,6 +20,9 @@ from facer.db import Database
 from facer.face_detector import FaceDetector
 from facer.face_direction import FaceDirection
 from facer.face_embedder import FaceEmbedder
+
+
+from facer.comfy import ComfyRunner
 from facer.schemas import (
     AnalysisResponse,
     FaceData,
@@ -32,6 +35,8 @@ detector = None
 direction_finder = None
 embedder = None
 db = None
+
+comfy_client = ComfyRunner()
 
 YAW_THRESHOLD = 40.0
 PITCH_THRESHOLD = 25.0
@@ -741,9 +746,12 @@ def get_face_full_image(face_id: int):
         return Response(status_code=500)
 
 
-async def run_image_script(face_id: int, script_name: str) -> Tuple[np.ndarray, str]:
+async def run_image_script(
+    face_id: int, script_name: str, prompt_text: str = None
+) -> Tuple[np.ndarray, str]:
     # 1. Check Cache
-    cache_key = f"{face_id}:{script_name}"
+
+    cache_key = f"{face_id}:{script_name}:{prompt_text or ''}"
     cached = script_cache.get(cache_key)
     if cached:
         print(f"⚡ Using cached result for {cache_key}")
@@ -776,7 +784,21 @@ async def run_image_script(face_id: int, script_name: str) -> Tuple[np.ndarray, 
         raise HTTPException(status_code=500, detail="Failed to decode image")
 
     # 3. Process image (in threadpool to avoid blocking)
-    processed_image = await run_in_threadpool(apply_image_filter, image, script_name)
+    # Check if this is a ComfyUI workflow
+    if script_name.startswith("comfy"):
+        try:
+
+            processed_image = await run_in_threadpool(
+                comfy_client.run, image, prompt_text
+            )
+        except Exception as e:
+            print(f"ComfyUI Error: {e}")
+            raise HTTPException(status_code=502, detail=f"ComfyUI Error: {str(e)}")
+    else:
+        # Standard OpenCV utils
+        processed_image = await run_in_threadpool(
+            apply_image_filter, image, script_name
+        )
 
     # 4. Store in Cache
     script_cache.set(cache_key, processed_image, row[1])
@@ -785,9 +807,13 @@ async def run_image_script(face_id: int, script_name: str) -> Tuple[np.ndarray, 
 
 
 @app.post("/faces/{face_id}/script/preview")
-async def preview_script(face_id: int, script_name: str = Query("grayscale")):
+async def preview_script(
+    face_id: int,
+    script_name: str = Query("grayscale"),
+    prompt_text: str = Query(None),
+):
     try:
-        processed_image, _ = await run_image_script(face_id, script_name)
+        processed_image, _ = await run_image_script(face_id, script_name, prompt_text)
 
         success, buffer = cv2.imencode(".jpg", processed_image)
         if not success:
@@ -805,11 +831,14 @@ async def preview_script(face_id: int, script_name: str = Query("grayscale")):
 
 @app.post("/faces/{face_id}/script/save")
 async def save_script_result(
-    face_id: int, script_name: str = Query("grayscale"), overwrite: bool = Query(False)
+    face_id: int,
+    script_name: str = Query("grayscale"),
+    overwrite: bool = Query(False),
+    prompt_text: str = Query(None),
 ):
     try:
         processed_image, original_filename = await run_image_script(
-            face_id, script_name
+            face_id, script_name, prompt_text
         )
 
         # Encode to bytes
@@ -872,7 +901,6 @@ async def save_script_result(
             )
 
             best_face = None
-
 
             if not results:
                 print(
