@@ -546,6 +546,15 @@ export default function Gallery() {
                   {face.is_valid_pose ? "Valid" : "Invalid"}
                 </span>
               </div>
+
+
+              {face.width && face.height && (
+                <div className="absolute bottom-2 left-2 pointer-events-none">
+                  <span className="bg-black/60 text-slate-300 text-[10px] font-mono px-1.5 py-0.5 rounded backdrop-blur-md border border-white/10">
+                    {face.width} x {face.height}
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="p-3 space-y-2">
