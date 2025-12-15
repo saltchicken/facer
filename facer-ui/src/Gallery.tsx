@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   Loader2, Tag, User, Edit2, Check, X,
   ChevronLeft, ChevronRight, RefreshCw, ChevronDown, Download,
-  Trash2, ScanSearch, Wand2, Save, Play, RefreshCcw
+  Trash2, ScanSearch, Wand2, Save, Play, RefreshCcw, Image, Crop
 } from 'lucide-react';
 import type { FaceRecord } from './types';
 import { useDebounce } from './hooks/useDebounce';
@@ -108,6 +108,10 @@ export default function Gallery() {
   const [savingScriptResult, setSavingScriptResult] = useState(false);
   const [overwriting, setOverwriting] = useState(false);
 
+  // Export Menu State
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
 
   const [comfyPrompt, setComfyPrompt] = useState('');
 
@@ -140,6 +144,17 @@ export default function Gallery() {
 
   useEffect(() => {
     fetchFilterOptions();
+  }, []);
+
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+        setShowExportMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   useEffect(() => {
@@ -233,11 +248,14 @@ export default function Gallery() {
     }
   };
 
-  const handleExport = () => {
+
+  const handleExport = (mode: 'full' | 'face') => {
     const params = new URLSearchParams();
     filters.keywords.forEach(k => params.append('keyword', k));
     filters.classifications.forEach(c => params.append('classification', c));
+    params.append('mode', mode);
     window.location.href = `/export?${params.toString()}`;
+    setShowExportMenu(false); // Close menu
   };
 
   const startEditing = (face: FaceRecord) => {
@@ -496,13 +514,35 @@ export default function Gallery() {
             </button>
           )}
 
-          <button
-            onClick={handleExport}
-            className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition-colors"
-            title="Export Filtered Results"
-          >
-            <Download className="w-5 h-5" />
-          </button>
+
+          <div className="relative" ref={exportMenuRef}>
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition-colors"
+              title="Export Options"
+            >
+              <Download className="w-5 h-5" />
+            </button>
+
+            {showExportMenu && (
+              <div className="absolute top-full right-0 mt-2 w-48 bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-50 p-1 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-200">
+                <button
+                  onClick={() => handleExport('full')}
+                  className="text-left px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 rounded flex items-center gap-2 transition-colors"
+                >
+                  <Image className="w-4 h-4 text-indigo-400" />
+                  <span>Original Images</span>
+                </button>
+                <button
+                  onClick={() => handleExport('face')}
+                  className="text-left px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 rounded flex items-center gap-2 transition-colors"
+                >
+                  <Crop className="w-4 h-4 text-indigo-400" />
+                  <span>Face Crops Only</span>
+                </button>
+              </div>
+            )}
+          </div>
 
           <button
             onClick={() => { fetchFaces(); fetchFilterOptions(); }}

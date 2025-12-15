@@ -626,12 +626,14 @@ def get_faces(
 def export_faces(
     keyword: list[str] = Query(None),
     classification: list[str] = Query(None),
+    mode: str = Query("full"),
 ):
     if not db:
         raise HTTPException(status_code=503, detail="Database not connected")
     try:
+
         query = """
-            SELECT f.id, f.image_name, si.image_data 
+            SELECT f.id, f.image_name, si.image_data, f.bbox 
             FROM faces f
             JOIN stored_images si ON f.stored_image_id = si.id
         """
@@ -649,20 +651,49 @@ def export_faces(
                 zip_buffer, "a", zipfile.ZIP_DEFLATED, False
             ) as zip_file:
                 for row in cur:
-                    face_id, image_name, original_bytes = row
+                    face_id, image_name, original_bytes, bbox = row
                     if not original_bytes:
                         continue
-                    path = Path(image_name)
-                    zip_filename = f"{path.stem}_{face_id}{path.suffix}"
-                    zip_file.writestr(zip_filename, original_bytes)
+
+
+                    data_to_write = original_bytes
+                    file_ext = Path(image_name).suffix
+                    base_name = Path(image_name).stem
+
+
+                    if mode == "face":
+                        nparr = np.frombuffer(original_bytes, np.uint8)
+                        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+                        if img is not None:
+                            face_crop = img  # Fallback
+                            if bbox:
+                                if detector:
+                                    face_crop = detector._crop_and_center_face(
+                                        img, bbox
+                                    )
+                                else:
+                                    x1, y1, x2, y2 = map(int, bbox)
+                                    face_crop = img[y1:y2, x1:x2]
+
+                            success, buf = cv2.imencode(".jpg", face_crop)
+                            if success:
+                                data_to_write = buf.tobytes()
+                                file_ext = (
+                                    ".jpg"  # Face crops are typically saved as JPG
+                                )
+                                base_name = f"{base_name}_face"
+
+
+                    zip_filename = f"{base_name}_{face_id}{file_ext}"
+                    zip_file.writestr(zip_filename, data_to_write)
 
         zip_buffer.seek(0)
+        filename = "exported_faces.zip" if mode == "face" else "exported_originals.zip"
         return StreamingResponse(
             zip_buffer,
             media_type="application/zip",
-            headers={
-                "Content-Disposition": "attachment; filename=exported_originals.zip"
-            },
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -787,7 +818,6 @@ async def run_image_script(
     # Check if this is a ComfyUI workflow
     if script_name.startswith("comfy"):
         try:
-
             processed_image = await run_in_threadpool(
                 comfy_client.run, image, prompt_text
             )
