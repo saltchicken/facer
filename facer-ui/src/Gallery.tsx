@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   Loader2, Tag, User, Edit2, Check, X,
   ChevronLeft, ChevronRight, RefreshCw, ChevronDown, Download,
-  Trash2, ScanSearch, Wand2, Save, Play, RefreshCcw, Image, Crop
+  Trash2, ScanSearch, Wand2, Save, Play, RefreshCcw, Image, Crop, UserX
 } from 'lucide-react';
 import type { FaceRecord } from './types';
 import { useDebounce } from './hooks/useDebounce';
@@ -249,7 +249,7 @@ export default function Gallery() {
   };
 
 
-  const handleExport = (mode: 'full' | 'face') => {
+  const handleExport = (mode: 'full' | 'face' | 'body') => {
     const params = new URLSearchParams();
     filters.keywords.forEach(k => params.append('keyword', k));
     filters.classifications.forEach(c => params.append('classification', c));
@@ -525,7 +525,7 @@ export default function Gallery() {
             </button>
 
             {showExportMenu && (
-              <div className="absolute top-full right-0 mt-2 w-48 bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-50 p-1 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-200">
+              <div className="absolute top-full right-0 mt-2 w-56 bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-50 p-1 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-200">
                 <button
                   onClick={() => handleExport('full')}
                   className="text-left px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 rounded flex items-center gap-2 transition-colors"
@@ -539,6 +539,14 @@ export default function Gallery() {
                 >
                   <Crop className="w-4 h-4 text-indigo-400" />
                   <span>Face Crops Only</span>
+                </button>
+                <button
+                  onClick={() => handleExport('body')}
+                  className="text-left px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 rounded flex items-center gap-2 transition-colors"
+                >
+                  <UserX className="w-4 h-4 text-indigo-400" />
+                  {/* ‼️ Updated label */}
+                  <span>Body Crop (1:1)</span>
                 </button>
               </div>
             )}

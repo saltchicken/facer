@@ -631,7 +631,6 @@ def export_faces(
     if not db:
         raise HTTPException(status_code=503, detail="Database not connected")
     try:
-
         query = """
             SELECT f.id, f.image_name, si.image_data, f.bbox 
             FROM faces f
@@ -655,11 +654,9 @@ def export_faces(
                     if not original_bytes:
                         continue
 
-
                     data_to_write = original_bytes
                     file_ext = Path(image_name).suffix
                     base_name = Path(image_name).stem
-
 
                     if mode == "face":
                         nparr = np.frombuffer(original_bytes, np.uint8)
@@ -685,11 +682,71 @@ def export_faces(
                                 base_name = f"{base_name}_face"
 
 
+                    elif mode == "body":
+                        nparr = np.frombuffer(original_bytes, np.uint8)
+                        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+                        if img is not None and bbox:
+                            h_img, w_img = img.shape[:2]
+                            x1, y1, x2, y2 = map(int, bbox)
+
+                            # Calculate dimensions based on face height for scale
+                            face_h = y2 - y1
+
+                            # Define ideal crop size (e.g., 3x face height)
+                            target_size = int(face_h * 3)
+
+                            # 1. Constrain by available image width
+                            crop_size = min(target_size, w_img)
+
+                            # 2. Constrain by available height below the chin (y2)
+                            available_h = h_img - y2
+                            crop_size = min(crop_size, available_h)
+
+                            if crop_size > 0:
+                                # Center X matches face center
+                                face_cx = (x1 + x2) // 2
+
+                                # Initial X coordinates
+                                c_x1 = face_cx - (crop_size // 2)
+                                c_x2 = c_x1 + crop_size
+
+                                # Shift horizontally if out of bounds to keep 1:1
+                                if c_x1 < 0:
+                                    offset = abs(c_x1)
+                                    c_x1 += offset
+                                    c_x2 += offset
+                                elif c_x2 > w_img:
+                                    offset = c_x2 - w_img
+                                    c_x1 -= offset
+                                    c_x2 -= offset
+
+                                # Y coordinates (Start at chin)
+                                c_y1 = y2
+                                c_y2 = c_y1 + crop_size
+
+                                # Final safe crop
+                                img = img[c_y1:c_y2, c_x1:c_x2]
+
+                                success, buf = cv2.imencode(".jpg", img)
+                                if success:
+                                    data_to_write = buf.tobytes()
+                                    file_ext = ".jpg"
+                                    base_name = f"{base_name}_body"
+
                     zip_filename = f"{base_name}_{face_id}{file_ext}"
                     zip_file.writestr(zip_filename, data_to_write)
 
         zip_buffer.seek(0)
-        filename = "exported_faces.zip" if mode == "face" else "exported_originals.zip"
+
+
+        if mode == "face":
+            filename = "exported_faces.zip"
+        elif mode == "body":
+            filename = "exported_bodies.zip"
+        else:
+            filename = "exported_originals.zip"
+
         return StreamingResponse(
             zip_buffer,
             media_type="application/zip",
