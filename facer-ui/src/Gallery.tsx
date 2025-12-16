@@ -545,7 +545,7 @@ export default function Gallery() {
                   className="text-left px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 rounded flex items-center gap-2 transition-colors"
                 >
                   <UserX className="w-4 h-4 text-indigo-400" />
-                  {/* ‼️ Updated label */}
+
                   <span>Body Crop (1:1)</span>
                 </button>
               </div>

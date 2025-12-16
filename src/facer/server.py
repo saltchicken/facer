@@ -703,6 +703,10 @@ def export_faces(
                             available_h = h_img - y2
                             crop_size = min(crop_size, available_h)
 
+
+                            if crop_size < 512:
+                                continue
+
                             if crop_size > 0:
                                 # Center X matches face center
                                 face_cx = (x1 + x2) // 2
