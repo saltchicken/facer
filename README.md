@@ -63,6 +63,7 @@ source .venv/bin/activate  # Linux/Mac
 
 # Install dependencies
 pip install -e .
+pip install "mediapipe==0.10.14"
 ```
 
 ### 3. Frontend Setup
