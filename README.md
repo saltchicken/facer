@@ -69,6 +69,7 @@ pip install -e .
 ```bash
 cd facer-ui
 npm install
+npm run build
 cd ..
 ```
 
